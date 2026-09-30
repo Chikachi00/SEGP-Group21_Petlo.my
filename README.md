@@ -140,6 +140,7 @@ The first detector run may obtain the lightweight model weights through the Ultr
 
 - [Project overview](docs/project-overview.md)
 - [Initial requirements](docs/requirements.md)
+- [Supervisor and client questions](docs/supervisor-questions.md)
 - [Architecture](docs/architecture.md)
 - [Dataset strategy](docs/dataset-plan.md)
 - [Feasibility findings template](docs/initial-findings.md)
