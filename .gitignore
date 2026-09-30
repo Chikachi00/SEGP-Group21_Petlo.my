@@ -1,0 +1,48 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local configuration and private material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+private/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and generated results
+*.log
+results/
+models/
+
+# Detection model weights
+*.pt
+*.pth
+*.onnx
+
+# Source and generated video files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Local project data; retain directory placeholders
+data/raw/*
+!data/raw/.gitkeep
+data/frames/*
+!data/frames/.gitkeep
+outputs/*
+!outputs/.gitkeep
+COMP2019_2627 Project Details.xlsx
