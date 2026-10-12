@@ -16,3 +16,7 @@ Extracted frame datasets should not be committed unless their source, permission
 
 If the future labelled dataset becomes too large for ordinary source control, the team should select suitable controlled data storage and record dataset versions separately from the application code. Access rules and retention decisions must be agreed before storing client-private material.
 
+
+## External Read-only Video Sources
+
+Packet preparation can read an external sample directory directly through `--source`; copying raw videos into this repository is unnecessary. Generated packets, full-resolution inspection crops, and review reports belong under ignored `outputs/video-analysis-pack/`, separately from source videos and future training annotations. Browse images are not substitutes for continuous algorithm input.

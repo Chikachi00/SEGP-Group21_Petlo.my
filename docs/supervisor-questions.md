@@ -1,4 +1,4 @@
-# Supervisor and Client Questions
+ # Supervisor and Client Questions
 
 This document is a working checklist for discussions with the supervisor and client. It is intended to clarify project requirements, data access, event definitions, technical constraints, and evaluation expectations.
 

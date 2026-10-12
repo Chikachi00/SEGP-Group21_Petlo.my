@@ -46,3 +46,10 @@ data/frames/*
 outputs/*
 !outputs/.gitkeep
 COMP2019_2627 Project Details.xlsx
+
+# Portable FFmpeg binaries and local runtime dependencies
+tools/
+
+# Local client-facing Word deliverable and editable backups
+/URS_Petlo_Tracking_20261009.docx
+/docs/backups/

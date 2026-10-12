@@ -8,7 +8,7 @@
 
 This project aims to develop a computer vision-based video analytics system for pre-recorded disc dog training videos. The planned system will estimate the number of throws, successful catches, and misses; calculate a catch ratio; associate events with timestamps; and support the review of historical training performance.
 
-The repository is currently at an early feasibility and project foundation stage. It contains planning documents, video inspection and frame extraction utilities, and a baseline object detection prototype. It is not a complete event recognition or web application.
+The project has progressed from feasibility work to a sample-bound algorithm prototype. The repository contains video inspection, enhanced object detection, dog and disc tracking, joint analysis, throw-event candidates, two-angle sample fusion, and candidate session statistics. It is not a generally validated event-recognition system or a complete web application.
 
 ## Problem
 
@@ -58,11 +58,13 @@ The current repository provides:
 - an initial current and future architecture
 - video inspection utilities
 - deterministic frame extraction
-- a pretrained object detection feasibility prototype
+- real-timestamp video packets, motion candidates, crop inspection, and result-review tooling
+- pretrained object detection with a small-disc enhancement tested on four samples
+- single-dog IDs, bounded gap prediction, pixel trajectories and tracking replays
 - a dataset preparation plan
 - a findings template for future experiments
 
-The utilities are implemented, but representative-video evaluation has not yet been completed.
+Four local sample videos have passed complete decoding and packet preparation, including 4K HEVC. The event candidate prototype analyzes the fixed front and side samples, and a separate session-statistics report summarizes candidate outcomes without using human labels. The user-reviewed side-view labels are three in-air catches and one ground pickup; v3 combines the matching ordered views to produce the same four candidate outcomes. These four attempts were used during rule development, so the 4/4 sample match is not an independent accuracy estimate. The side-only second event remains uncertain because the disc leaves frame; the front view supplies a ground-pickup candidate.
 
 ## Initial Technology Direction
 
@@ -114,6 +116,21 @@ The commands below assume Windows PowerShell and are run from the repository roo
 
 The first detector run may obtain the lightweight model weights through the Ultralytics package. Model weights and generated videos must remain outside version control.
 
+## Precise Video Packets and Algorithm Review
+
+The packet workflow uses FFmpeg and ffprobe to retain every real source-frame timestamp. It creates sparse browsing frames, four overview sheets, motion-based candidate windows, and reversible original-pixel crops. It can also review the dog tracker's JSONL output with annotated stills, continuous-frame HTML playback, and comparable-run diagnostics.
+
+From the repository root, use a local FFmpeg/ffprobe pair in `tools/ffmpeg/` or supply `--ffmpeg-dir`:
+
+```powershell
+py -3 -m cv.video_tools prepare --source '<sample-video-directory>' --output outputs/video-analysis-pack
+py -3 -m cv.video_tools inspect-window --pack outputs/video-analysis-pack --video-id Portrait_Handheld --start 0 --end 1 --frame-id 0 --tiles
+```
+
+The existing packet is available locally at `outputs/video-analysis-pack/index.html`. Its first model-reading step uses four overview sheets; a detailed batch contains at most eight independent images. Preprocessing runs offline without GPT calls. Image reading and coding still consume model usage.
+
+See [the video workflow](docs/video-analysis-workflow.md) and [the detailed command guide](cv/video_tools/README.md). `track_dog_video.py` converts saved enhanced detections into the validated track-result format. See [dog tracking and test commands](docs/dog-tracking-prototype.md); the existing baseline `detect_video.py` remains a separate entry.
+
 ## Roadmap
 
 - [x] Project definition
@@ -121,14 +138,19 @@ The first detector run may obtain the lightweight model weights through the Ultr
 - [x] Initial architecture
 - [x] Video inspection utility
 - [x] Frame extraction utility
+- [x] Real-timestamp video packet and review tools
+- [x] Complete decoding of four local sample videos
 - [x] Baseline detection prototype
 - [ ] Dataset collection
 - [ ] Domain-specific disc annotation
 - [ ] Baseline evaluation
 - [ ] Detection fine-tuning
-- [ ] Object tracking
-- [ ] Trajectory analysis
-- [ ] Event recognition
+- [x] Single-dog tracking prototype and pixel trajectory export
+- [ ] Disc tracking and identity evaluation
+- [ ] Calibrated trajectory analysis
+- [x] Throw-event candidate prototype
+- [x] Sample throw-event statistics prototype
+- [ ] General event recognition evaluation
 - [ ] Backend development
 - [ ] Frontend development
 - [ ] Database integration
@@ -145,3 +167,8 @@ The first detector run may obtain the lightweight model weights through the Ultr
 - [Dataset strategy](docs/dataset-plan.md)
 - [Feasibility findings template](docs/initial-findings.md)
 - [Computer vision module](cv/README.md)
+- [Video analysis workflow](docs/video-analysis-workflow.md)
+- [Dog tracking implementation and sample tests](docs/dog-tracking-prototype.md)
+- [Throw-event v3 sample evaluation](docs/throw-events-v3.md)
+- [Draft user requirements specification](docs/user-requirements-specification.md)
+- [Throw-event sample statistics](docs/throw-events-v3.md#样本事件统计)

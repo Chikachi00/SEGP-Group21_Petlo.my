@@ -1,3 +1,7 @@
 opencv-python
 ultralytics
 
+
+# Offline video packet preparation and crop/review tools
+numpy>=1.24
+Pillow>=10

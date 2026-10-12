@@ -20,7 +20,7 @@ A consistent video analysis workflow could reduce repetitive review and provide 
 
 The proposed solution is a staged computer vision pipeline that reads a recorded video, detects relevant objects, tracks their motion, analyses trajectories, recognises events, and produces session statistics for review in a future web application.
 
-The current version is limited to video inspection, frame extraction, and a pretrained object detection baseline. Tracking, trajectory analysis, and event recognition remain future work.
+The current local prototype includes video inspection, object detection, dog and disc tracking, joint evidence, throw-event candidates, sample-only two-angle fusion, and candidate session statistics. It has only been reviewed on the supplied fixed-angle samples; general accuracy is not established.
 
 ## Main Objectives
 
@@ -46,7 +46,7 @@ The future system is expected to provide:
 - event timestamps
 - historical session data
 
-These outputs are planned and are not produced by the current feasibility tools.
+A local prototype now produces event timestamps and candidate counts/rates for the supplied sample. Verified catch/miss counts, general accuracy, calibrated physical measures, and historical session storage remain future work.
 
 ## Initial Scope
 
@@ -61,8 +61,8 @@ The current scope covers:
 
 ## Current Out-of-Scope Items
 
-- object tracking and trajectory analysis
-- throw, catch, and miss recognition
+- multi-dog identity and calibrated trajectory analysis
+- general throw, catch, and miss recognition beyond sample-bound candidate rules
 - model fine-tuning
 - video upload and account management
 - frontend, backend, and database implementation

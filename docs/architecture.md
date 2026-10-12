@@ -2,11 +2,45 @@
 
 ## Architecture Principles
 
-The project separates object detection, object tracking, trajectory analysis, and event recognition. A disc detection provides an observation; it does not on its own establish that a throw or catch happened. Each stage should expose outputs that can be inspected and evaluated independently.
+Detection, tracking, trajectory evidence, event candidates, and statistics are separate stages. A detection or a temporary disappearance alone does not establish a catch or miss. Each stage produces inspectable outputs and keeps uncertain events explicit.
 
-## Future Architecture
+## Current Local Prototype
 
-The following diagram is a proposed direction, not an implemented system.
+The current command-line workflow has two paths: a source-reading/review path and a sample event-analysis path. The event path is tested on the fixed front and side sample videos only.
+
+```mermaid
+flowchart LR
+    V[Local video] --> DET[Disc and dog detections]
+    DET --> TR[Disc and dog tracks]
+    TR --> JO[Joint disc/dog evidence]
+    JO --> EV[Throw-event candidates]
+    EV --> FU[Front/side sample fusion]
+    FU --> ST[Candidate session statistics]
+    PK[FFmpeg source packet] --> RV[Frame and crop review]
+    TR --> RV
+    EV --> RV
+```
+
+The FFmpeg packet stores real frame timestamps and supports browsing, crops, and result review. Algorithms still process continuous source frames. The event prototype analyzes the front and side tripod samples, pairs their four attempts by event order, and leaves the views' timestamps independent. The statistics report distinguishes in-air catch candidates, ground-pickup candidates, miss candidates, and uncertain outcomes. Human labels are used only for sample comparison, not to calculate candidate statistics.
+
+## Component Status
+
+| Component | Current status |
+|---|---|
+| Video reader and source packet | Implemented; four local samples completely decoded and indexed |
+| Dog detector and tracker | Prototype implemented; provisional single-dog IDs and pixel trajectories |
+| Disc detector and tracker | Small-disc detection and tracking prototypes; sample review tools available |
+| Joint dog/disc evidence | Prototype implemented with source-time and observation provenance |
+| Throw-event recognition | Sample-bound candidate rules; no mouth localization or general accuracy claim |
+| Two-angle fusion | Implemented for the matching, ordered front/side sample recordings only |
+| Session statistics | Candidate counts, in-air catch candidate rate, retrieval candidate rate, and uncertainty coverage |
+| Accuracy evaluation | Four user-reviewed side labels provide a sample diagnostic, not independent evaluation |
+| REST API, frontend, database, deployment | Not implemented |
+| Physical distance and speed | Not implemented; camera calibration is required |
+
+Candidate statistics currently use classified candidate events as their denominator; uncertain events are reported separately and excluded. Ground pickups count as non-air catches for the in-air catch candidate rate and as retrieved for the retrieval candidate rate. These rates describe model candidates, not verified outcomes.
+
+## Future Application Architecture
 
 ```mermaid
 flowchart TB
@@ -22,47 +56,4 @@ flowchart TB
     BE <--> VS[(Video Storage)]
 ```
 
-PostgreSQL is a future candidate for session, event, and statistics storage. Local video storage may be used during development; object storage may be considered later. Neither database nor video storage integration is implemented in this version.
-
-## Current Architecture
-
-Only the local feasibility path is implemented:
-
-```mermaid
-flowchart LR
-    V[Local Video] --> OCV[OpenCV Video Processing]
-    OCV --> DET[Pretrained Object Detection]
-    DET --> OUT[Annotated Output Video]
-```
-
-The current tools also inspect video metadata and extract selected frames. They do not track identities or recognise events.
-
-Small and fast disc detection is currently one of the highest technical risks. Therefore, detection feasibility should be evaluated before significant frontend and backend development.
-
-## Component Responsibilities
-
-| Component | Responsibility | Status |
-|---|---|---|
-| Video reader | Open a local video and provide frames and metadata. | Implemented for feasibility use |
-| Object detector | Observe dog, frisbee, and person classes using a pretrained model. | Implemented as an unevaluated baseline |
-| Object tracker | Link object observations across frames. | Planned |
-| Trajectory analysis | Derive motion evidence from tracked objects. | Planned |
-| Event recognition | Classify throw, catch, miss, and uncertain events using agreed definitions. | Planned |
-| Statistics | Aggregate reviewed events into session measures. | Planned |
-| REST API and web interface | Support upload, review, correction, and history workflows. | Planned |
-| Database | Retain approved session and event records. | Planned |
-
-## Future Event State Machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    IDLE --> DISC_IN_FLIGHT: supported throw evidence
-    DISC_IN_FLIGHT --> CATCH: supported catch evidence
-    DISC_IN_FLIGHT --> MISS: supported miss evidence
-    CATCH --> IDLE
-    MISS --> IDLE
-```
-
-Proposed design only. Not implemented in the current version. Event definitions, evidence thresholds, ambiguous cases, and correction rules must be agreed before implementation.
-
+This is a proposed system direction. The web interface, REST API, database, and deployment are not part of the current prototype. Multi-camera synchronization and reliable matching outside the supplied sample also remain future work.

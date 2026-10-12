@@ -111,3 +111,9 @@ No metric results are available yet. Event-level evaluation will also require a 
 - which artefacts may be shared with assessors or placed in a public repository
 - how dataset versions and annotation changes will be recorded
 
+
+## Local Sample Packet
+
+Four local sample videos have been fully decoded into real-frame time indexes and a browsing packet in `outputs/video-analysis-pack/`. This packet is for evidence inspection and pipeline verification; sparse browsing frames are not a detector input dataset or ground-truth annotation. Motion candidates are suggestions rather than throw/catch labels.
+
+Front and side footage that capture the same throw must remain in the same recording group for later splits. The handheld sample requires separate attention to camera motion. Setup is camera/environment reference by default. Pixel coordinates do not provide physical distance or speed without calibration. No precision, recall, or accuracy is claimed without reviewed human labels.

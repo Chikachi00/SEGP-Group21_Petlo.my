@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "video_id": "Landscape_Tripod_SideView",
+  "source_sha256": "505a974f330df5161444649f2d41f3eb4ea07f6ab7bd4012604dbd42f86366e5",
+  "annotation_source": "User visual review of the side-view sample, 2026-10-12",
+  "event_labels": [
+    {"throw_id":"throw-001","confirmed_throw":true,"verified_outcome":"catch_success","review_status":"reviewed","notes":"Dog caught the disc in the air."},
+    {"throw_id":"throw-002","confirmed_throw":true,"verified_outcome":"ground_pickup","review_status":"reviewed","notes":"The disc landed before the dog picked it up; it was out of frame for part of the flight."},
+    {"throw_id":"throw-003","confirmed_throw":true,"verified_outcome":"catch_success","review_status":"reviewed","notes":"Dog caught the disc in the air."},
+    {"throw_id":"throw-004","confirmed_throw":true,"verified_outcome":"catch_success","review_status":"reviewed","notes":"Dog caught the disc in the air."}
+  ]
+}
