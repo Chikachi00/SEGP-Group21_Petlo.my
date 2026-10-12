@@ -7,6 +7,24 @@
 
 Build an offline prototype that analyses recorded disc-dog footage. The current computer-vision pipeline detects the dog and flying disc, links observations over time, examines their joint movement, identifies throw/catch/retrieval event candidates, and presents results for review.
 
+## Development sequence
+
+The implementation follows an incremental, single-developer workflow: establish that each stage works and can be inspected before building on its output. The stages below describe the dependency order of the work, rather than claiming that each stage was completed once with no later revisions.
+
+| Step | Development stage | Purpose and hand-off |
+|---|---|---|
+| 1 | Define scope and inspect sample footage | Confirm the initial target objects, camera views, and practical video constraints. The current event-analysis scope is the fixed front and side views; handheld footage is excluded and Setup is reference material. |
+| 2 | Build reliable video reading and browsing | Decode the original clips, preserve source timestamps and orientation, and create a small local browsing pack. This makes later algorithm results traceable to original frames. |
+| 3 | Establish a detection baseline | Run a pretrained detector for dog, disc, and person, and inspect its annotated output to identify the small, fast disc as a key failure source. |
+| 4 | Improve disc observations | Add higher-resolution/crop inference and bounded local recovery for short detection gaps. Keep measured observations, visual recovery, and predictions distinguishable. |
+| 5 | Track dog and disc independently | Link frame-level observations over time and export reviewable tracks and pixel-coordinate trajectories. This separates object detection errors from association errors. |
+| 6 | Analyse dog-disc relationships | Align both tracks by source frame and time, then calculate motion, approach, and contact evidence. Treat these as candidates because whole-body boxes do not locate the dog's mouth. |
+| 7 | Add event candidates and two-view fusion | Build throw, airborne-catch, ground-pickup, and uncertain outcomes from the prior evidence. Compare the front and side samples by event order, preserving uncertainty when evidence conflicts or leaves the frame. |
+| 8 | Add review and candidate statistics | Generate event evidence pages and a separate summary. Keep algorithm candidate rates distinct from human-verified accuracy measures. |
+| 9 | Current validation work | Finish reviewing the supplied sample events, compare candidates with those labels, fix repeatable failures, and only then expand to more videos or claim evaluation metrics. |
+
+This order is suitable for an individual project because the stages have clear inputs and outputs, can be run and debugged independently, and limit how many causes need investigation when a result is wrong. The process remains iterative: a later review can send work back to detection, tracking, or event rules.
+
 ## Development history and current status
 
 | Area | Status at this baseline | Evidence and limits |
