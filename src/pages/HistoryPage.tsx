@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+﻿import { useEffect, useState } from "react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 interface HistoryItem {
   session_id: string;
@@ -24,18 +24,20 @@ export default function HistoryPage() {
   }));
 
   return (
-    <div>
-      <h2>Historical Trend</h2>
-      <LineChart width={600} height={300} data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="date" />
-        <YAxis domain={[0, 100]} unit="%" />
+    <section className="page">
+      <header className="page-header"><div><h1>Historical Trend</h1><p>Catch rate across your training sessions.</p></div></header>
+      <div className="panel chart-panel">
+      <h2>Catch rate</h2>
+      <div className="chart-frame"><ResponsiveContainer width="100%" height="100%">
+      <LineChart data={chartData} margin={{ top: 16, right: 16, bottom: 8, left: 0 }}>
+        <XAxis dataKey="date" axisLine={false} tickLine={false} minTickGap={32} tick={{ fill: "#697386", fontSize: 12 }} />
+        <YAxis domain={[0, 100]} unit="%" axisLine={false} tickLine={false} width={48} tick={{ fill: "#697386", fontSize: 12 }} />
         <Tooltip />
-        <Line type="monotone" dataKey="ratio" name="Catch rate" stroke="#4f46e5" />
+        <Line type="linear" dataKey="ratio" name="Catch rate" stroke="#7c83c4" strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
       </LineChart>
-      <div>
-        table
-      </div>
-    </div>
+      </ResponsiveContainer></div></div>
+    </section>
   );
 }
+
+

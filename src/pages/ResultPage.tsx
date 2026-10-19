@@ -2,10 +2,10 @@ import { useRef } from "react";
 import { useParams } from "react-router";
 
 const events = [
-  { id: 1, time: 5.2, label: "00:05 🟢 Catch" },
-  { id: 2, time: 18.0, label: "00:18 🔴 Failure" },
-  { id: 3, time: 31.0, label: "00:31 🟢 Catch" },
-  { id: 4, time: 47.3, label: "00:47 ⚪ Indetermination" },
+  { id: 1, time: 5.2, label: "00:05 · Catch" },
+  { id: 2, time: 18.0, label: "00:18 · Failure" },
+  { id: 3, time: 31.0, label: "00:31 · Catch" },
+  { id: 4, time: 47.3, label: "00:47 · Indetermination" },
 ];
 
 export default function ResultPage() {
@@ -20,19 +20,20 @@ export default function ResultPage() {
   }
 
   return (
-    <div>
-      <h2>Result details</h2>
-      <p>The current video being viewed：{id}</p>
+    <section className="page">
+      <header className="page-header"><div><h1>Result details</h1>
+      <p>Training session · {id}</p></div></header>
+      <div className="panel result-panel">
 
-      <video ref={videoRef} src="../../public/test_video.mp4" controls width={480} />
+      <video ref={videoRef} src="/test_video.mp4" controls width={480} />
 
-      <ul>
+      <div className="event-panel"><h2>Session events</h2><ul className="event-list">
         {events.map((ev) => (
-          <li key={ev.id} onClick={() => jumpTo(ev.time)} style={{ cursor: "pointer" }}>
-            #{ev.id} {ev.label}
+          <li key={ev.id}><button onClick={() => jumpTo(ev.time)} aria-label={`Play event ${ev.id}: ${ev.label}`}>
+            <span className="event-number">{ev.id}</span> {ev.label}<span aria-hidden="true"> →</span></button>
           </li>
         ))}
-      </ul>
-    </div>
+      </ul></div></div>
+    </section>
   );
 }
