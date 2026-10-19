@@ -1,0 +1,5 @@
+[
+  { "session_id": "s_001", "date": "2026-10-12", "throw_count": 8, "catch_count": 4, "catch_ratio": 0.5 },
+  { "session_id": "s_002", "date": "2026-10-15", "throw_count": 12, "catch_count": 9, "catch_ratio": 0.75 },
+  { "session_id": "s_003", "date": "2026-10-18", "throw_count": 10, "catch_count": 8, "catch_ratio": 0.8 }
+]
