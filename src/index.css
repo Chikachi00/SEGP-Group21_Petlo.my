@@ -1,0 +1,5 @@
+body { margin: 0; font-family: sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 16px; }
+.navbar { display: flex; justify-content: space-between; padding: 12px 24px; background: #1f2937; color: white; }
+.navbar a { color: #ccc; margin-left: 16px; text-decoration: none; }
+.navbar a.active { color: white; font-weight: bold; }
