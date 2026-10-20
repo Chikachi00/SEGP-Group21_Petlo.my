@@ -56,3 +56,32 @@ tools/
 node_modules/
 dist/
 .vercel/
+
+# Local backend database and environment
+/backend/data/
+/backend/.env
+
+# Local database files and SQLite transaction sidecars (keep SQL schemas)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Frontend development and incremental build caches
+.vite/
+.vite-temp/
+*.tsbuildinfo
+
+# Generated test coverage reports
+.coverage
+.coverage.*
+htmlcov/
+coverage/
