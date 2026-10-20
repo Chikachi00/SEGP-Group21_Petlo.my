@@ -70,3 +70,24 @@ For future evaluation, annotate the event type and relevant time interval, inclu
 3. Fix the highest-impact repeatable failure, then rerun the same clips with a new output version.
 4. Expand the sample set only after this baseline pipeline has been checked end to end on the current clips.
 5. Define how the product should count ground pickups before publishing a retrieval or catch rate.
+
+## 2026-10-20 — Frontend API preparation (local handoff)
+
+Added a proposed v1 API contract, backend handoff checklist, public environment example, typed video/session API wrappers, shared HTTP transport, and an analysis-job polling hook. Existing page demos are intentionally not switched to a nonexistent server. The job observer cleans up requests on job change/unmount, stops on completed/failed or errors, and never automatically repeats analysis-start POST requests.
+
+The contract preserves four candidate categories, nullable zero-denominator rates, and independent timestamps per camera. Existing sample-pair fusion remains sample-restricted; arbitrary new uploads require backend adapter work and validation. The current MySQL schema requires session/job/event persistence changes before the complete flow can be connected.
+
+Validation: `npm run test:api` passed all 10 focused transport/polling tests; `npm run build` passed with the existing large-chunk warning. SHA-256 comparison confirmed all 59 previously tracked files under `cv/`, `src/`, `database/`, and `tests/` unchanged. This verifies preservation, not general algorithm accuracy or a working backend. No dependencies, CV algorithms, database SQL, or existing page behavior were changed. No commit, push, PR or deployment was made; the user will upload manually. The previously observed oxlint native-binding installation issue is separate.
+
+See [API contract](api-contract.md), [backend handoff](backend-handoff.md), and [frontend preparation guide](frontend-api-preparation.md) for the exact files, response formats, local checks, and remaining integration steps.
+## 2026-10-20 — Local backend/CV integration and real API pages
+
+Implemented a loopback-only FastAPI service, additive SQLAlchemy mappings, SQLite development database and MySQL extension DDL. Routes create/read dogs and sessions, accept validated uploads, start one queued inference job per active session, query durable job state, return saved candidate events/statistics and serve source-time H.264 previews with Range support. Existing user_login/dogs/video mappings are reused; original database/petlo.sql and cv/ source files were not changed. Live MySQL connectivity remains to be tested against the teammate's actual database.
+
+Added an isolated per-job adapter invoking the existing packet CLI, clean evidence preview, detector, dog/disc trackers, joint evidence and v3 event scripts. It reuses existing candidate statistics logic and restricts paired fusion to known source hashes without passing human labels. Original verified CFR evidence previews remain distinct from source-time browser playback. Failure/restart states are explicit; private model/video/runtime artifacts stay ignored.
+
+Added opt-in VITE_USE_API routing to new Live pages, real upload and dog selection/creation, polling, saved list/history and per-view event playback. Original demo page files remain selectable and unchanged. Fixed Windows integration issues by shortening per-job generated names and excluding outputs/backend-data/venv/raw footage from Vite's watcher; packet execution now has its own subprocess log and timeout.
+
+Validation: 108 existing CV regression tests, 9 backend tests, 10 client transport/polling tests, and API-mode frontend build passed. A real 0.5-second resized source clip ran through all original stages, saved null-denominator candidate statistics, supported HTTP 206 playback, and survived an API restart. Browser verification exercised actual multipart upload, a failed-job review/retry and eventual completed playback/results. Short-clip integration checks do not measure recognition accuracy; a new full paired-video run and live MySQL/public-auth deployment are not claimed. Existing large-bundle warning and optional oxlint binding issue remain separate.
+
+The local integration has no public login/authentication service and rejects non-loopback clients. Public backend hosting/storage/credentials and multi-user authorization remain future work. No Git commit, push, PR or remote deployment was performed; user uploads manually. Start with docs/local-full-stack-testing.md and backend/README.md.

@@ -69,11 +69,11 @@ Four local sample videos have passed complete decoding and packet preparation, i
 ## Initial Technology Direction
 
 - **Computer vision:** Python, OpenCV, PyTorch, and Ultralytics YOLO as an initial baseline candidate
-- **Future backend:** FastAPI
-- **Future frontend:** React and TypeScript
-- **Future database:** PostgreSQL
+- **Backend (local):** FastAPI with a background CV job adapter
+- **Frontend:** React, TypeScript and Vite, with separate demo/API modes
+- **Database:** SQLite for local integration tests; SQLAlchemy mappings and additive DDL for the teammate's MySQL schema
 
-Technology choices may change after technical evaluation. The backend, frontend, and database are not implemented in this version.
+Technology choices may change after technical evaluation. A Vite/React frontend and a local FastAPI backend integration are now implemented. SQLite is used for local tests, with additive mappings for the teammate's MySQL schema. Production authentication and a public backend deployment remain pending.
 
 ## Quick Start
 
@@ -151,12 +151,16 @@ See [the video workflow](docs/video-analysis-workflow.md) and [the detailed comm
 - [x] Throw-event candidate prototype
 - [x] Sample throw-event statistics prototype
 - [ ] General event recognition evaluation
-- [ ] Backend development
-- [ ] Frontend development
-- [ ] Database integration
-- [ ] System integration
+- [x] Local backend API and CV job integration
+- [ ] Public backend authentication and hosting
+- [x] Frontend demo and opt-in API pages
+- [x] Local SQLite persistence
+- [ ] Live MySQL connection validation
+- [x] Local video-to-result integration
+- [ ] Production system integration
 - [ ] Testing
-- [ ] Deployment
+- [x] Static frontend deployment
+- [ ] Public backend deployment
 
 ## Further Documentation
 
@@ -172,3 +176,8 @@ See [the video workflow](docs/video-analysis-workflow.md) and [the detailed comm
 - [Throw-event v3 sample evaluation](docs/throw-events-v3.md)
 - [Draft user requirements specification](docs/user-requirements-specification.md)
 - [Throw-event sample statistics](docs/throw-events-v3.md#样本事件统计)
+
+
+## Local full-stack integration (2026-10-20)
+
+The unchanged CV stages are now wrapped by a loopback-only FastAPI service with persisted video/session/job/event records and real source-time playback. Set `VITE_USE_API=true` for the network-backed pages; omit the flag or set it false for the original demo. See [the local full-stack testing guide](docs/local-full-stack-testing.md), [backend startup and limitations](backend/README.md), and [the API contract](docs/api-contract.md). Do not publish private environment files, databases, uploads, model weights or generated artifacts. The existing Pages site remains a frontend deployment; it does not run this local Python service.
