@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:api": "node --experimental-strip-types --test tests/frontend/apiClient.test.mjs tests/frontend/analysisPolling.test.mjs"
   },
   "dependencies": {
     "antd": "^6.6.6",
