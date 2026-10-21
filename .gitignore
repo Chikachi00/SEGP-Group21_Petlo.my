@@ -85,3 +85,6 @@ dist/
 .coverage.*
 htmlcov/
 coverage/
+
+# Local UI screenshots and version history
+/screenshots/

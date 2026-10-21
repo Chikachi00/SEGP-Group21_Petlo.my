@@ -25,7 +25,7 @@ export default function LiveVideoListPage() {
         <td data-label="Air catches">{session.statistics?.candidate_counts.in_air_catch_candidate ?? "—"}</td>
         <td data-label="Uncertain">{session.statistics?.uncertain_events ?? "—"}</td>
         <td data-label="Candidate rate">{session.statistics?.in_air_catch_candidate_rate == null ? "—" : `${(session.statistics.in_air_catch_candidate_rate * 100).toFixed(1)}%`}</td>
-        <td data-label="Actions">{!trash && <Link to={`/sessions/${encodeURIComponent(session.session_id)}${isActiveJob(session.status) ? "/analysis" : ""}`}>{isActiveJob(session.status) ? "View progress" : session.status === "completed" ? "View report" : "Review session"}</Link>}
+        <td data-label="Actions">{!trash && <Link className="button-link" to={`/sessions/${encodeURIComponent(session.session_id)}${isActiveJob(session.status) ? "/analysis" : ""}`}>{isActiveJob(session.status) ? "View progress" : session.status === "completed" ? "View report" : "Review session"}</Link>}
           <SessionActions session={session} onChange={refresh} /></td>
       </tr>)}</tbody></table></div>
   </section>;
