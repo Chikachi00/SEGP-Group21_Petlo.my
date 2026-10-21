@@ -15,7 +15,7 @@ export default function LiveAnalysisPage() {
   // The job is the authoritative live state; the detail endpoint supplies its persisted identity.
   const status = job?.status ?? session?.status;
   useEffect(() => { document.title = status === "completed" ? "Report ready · Petlo" : "Analysis status · Petlo"; return () => { document.title = "Petlo"; }; }, [status]);
-  return <section className="page"><header className="page-header"><div><h1>Analysis status</h1><p>Your saved task continues independently of this page.</p></div><Link to="/">Video Management</Link></header>
+  return <section className="page"><header className="page-header"><div><h1>Analysis status</h1><p>Your saved task continues independently of this page.</p></div><Link className="button-link" to="/">Video Management</Link></header>
     {error && <div className="analysis-error" role="alert"><p>{error.message}</p><button onClick={() => setRevision(value => value + 1)}>Retry connection</button></div>}
     {!session && !error && <p role="status">Loading saved session…</p>}
     {session && <>

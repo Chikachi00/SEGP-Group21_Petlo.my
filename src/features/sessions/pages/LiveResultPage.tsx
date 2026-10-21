@@ -39,7 +39,7 @@ export default function LiveResultPage() {
     finally { if (!abort.signal.aborted) setStarting(false); if (retryController.current === abort) retryController.current = null; }
   }
   const rate = (value: number | null | undefined) => value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
-  return <section className="page"><header className="page-header"><div><h1>Analysis report</h1><p>{data ? defaultSessionName(data) : "Saved session"} · Machine event candidates for manual review</p></div><Link to="/">Video Management</Link></header>
+  return <section className="page"><header className="page-header"><div><h1>Analysis report</h1><p>{data ? defaultSessionName(data) : "Saved session"} · Machine event candidates for manual review</p></div><Link className="button-link" to="/">Video Management</Link></header>
     {error && <div className="analysis-error" role="alert"><p>{error.message}</p><button onClick={() => setRevision(String(Date.now()))}>Retry connection</button></div>}
     {!data && !error && <p role="status">Loading session…</p>}
     {actionError && <p className="analysis-error" role="alert">{actionError}</p>}
