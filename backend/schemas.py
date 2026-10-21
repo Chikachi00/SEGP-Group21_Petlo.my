@@ -112,3 +112,5 @@ class JobOut(BaseModel):
     progress_percent: float | None = Field(ge=0, le=100)
     stage: str | None
     error: JobErrorOut | None
+    created_at: str
+    finished_at: str | None

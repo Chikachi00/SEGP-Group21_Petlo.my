@@ -127,7 +127,8 @@ def create_app(settings=None, runner=None):
     def job_json(value):
         return {'job_id': value.job_id, 'session_id': value.session_id, 'status': value.status,
                 'progress_percent': 100 if value.status == 'completed' else None,
-                'stage': value.stage, 'error': value.error_json}
+                'stage': value.stage, 'error': value.error_json,
+                'created_at': value.created_at, 'finished_at': value.finished_at}
 
     @app.get('/api/v1/health')
     def health():
@@ -244,6 +245,7 @@ def create_app(settings=None, runner=None):
                         mode=body.mode, video_ids=body.video_ids)
             db.add(value)
             parent.current_job_id = value.job_id
+            db.flush()  # Resolve the persisted submission timestamp before serializing.
             result = job_json(value)
         try:
             request.app.state.jobs.enqueue(value.job_id)

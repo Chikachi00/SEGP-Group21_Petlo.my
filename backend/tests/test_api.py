@@ -191,5 +191,31 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(remote.get('/api/v1/health').status_code, 403)
 
 
+    def test_status_refresh_preserves_submission_time_and_does_not_enqueue_again(self):
+        from datetime import datetime
+        gate = threading.Event()
+        try:
+            with self.client(TestRunner(self.settings, gate=gate)) as client:
+                session = self.session(client)
+                video = self.upload(client, session).json()['video_id']
+                submitted = client.post(f'/api/v1/sessions/{session}/analysis', json={'mode': 'single_view', 'video_ids': [video]}).json()
+                job_id = submitted['job_id']
+                self.assertIsNotNone(datetime.fromisoformat(submitted['created_at']).tzinfo)
+                self.assertIsNone(submitted['finished_at'])
+                for _ in range(3):
+                    detail = client.get(f'/api/v1/sessions/{session}').json()
+                    observed = client.get(f'/api/v1/jobs/{job_id}').json()
+                    self.assertEqual(detail['current_job_id'], job_id)
+                    self.assertEqual(observed['created_at'], submitted['created_at'])
+                with client.app.state.sessions() as db:
+                    self.assertEqual(len(list(db.scalars(select(Job).where(Job.session_id == session)))), 1)
+                gate.set()
+                completed = self.wait(client, job_id)
+                self.assertEqual(completed['status'], 'completed')
+                self.assertGreaterEqual(datetime.fromisoformat(completed['finished_at']), datetime.fromisoformat(completed['created_at']))
+        finally:
+            gate.set()
+
+
 if __name__ == '__main__':
     unittest.main()
