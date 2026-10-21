@@ -8,7 +8,7 @@
 
 This project aims to develop a computer vision-based video analytics system for pre-recorded disc dog training videos. The planned system will estimate the number of throws, successful catches, and misses; calculate a catch ratio; associate events with timestamps; and support the review of historical training performance.
 
-The project has progressed from feasibility work to a sample-bound algorithm prototype. The repository contains video inspection, enhanced object detection, dog and disc tracking, joint analysis, throw-event candidates, two-angle sample fusion, and candidate session statistics. It is not a generally validated event-recognition system or a complete web application.
+The project has progressed from feasibility work to a sample-bound algorithm prototype. The repository contains video inspection, enhanced object detection, dog and disc tracking, joint analysis, throw-event candidates, two-angle sample fusion, and candidate session statistics. A local web/API integration is implemented; general event-recognition accuracy, production multi-user access and a public algorithm backend remain unverified or pending.
 
 ## Problem
 
@@ -39,7 +39,7 @@ Detection, tracking, and event recognition are separate stages. A detected or te
 
 ## Planned Core Features
 
-The following are planned features rather than claims about the current implementation:
+The following are product goals; the local implementation and its limits are described below:
 
 - video upload
 - dog detection
@@ -74,6 +74,18 @@ Four local sample videos have passed complete decoding and packet preparation, i
 - **Database:** SQLite for local integration tests; SQLAlchemy mappings and additive DDL for the teammate's MySQL schema
 
 Technology choices may change after technical evaluation. A Vite/React frontend and a local FastAPI backend integration are now implemented. SQLite is used for local tests, with additive mappings for the teammate's MySQL schema. Production authentication and a public backend deployment remain pending.
+
+## Local Web Demonstration (2026-10-22)
+
+After installing the dependencies in [local full-stack testing](docs/local-full-stack-testing.md), run from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-local-demo.ps1 -OpenBrowser
+```
+
+This starts or reuses loopback-only services without uploading code or modifying the CV algorithms. Uploads open a recoverable task-status page with real stage names and submission elapsed time. Completed sessions provide per-view event playback, candidate statistics, JSON/CSV downloads and saved history. There is no fabricated processing percentage or ETA. Keep the backend running while jobs execute.
+
+Use the [presentation checklist](docs/local-demo-checklist.md) to rehearse with complete original samples, preserve saved reports and handle connection errors. Local uploads default to 1024 MiB per file to accommodate the unmodified side sample; this is separate from public hosting limits.
 
 ## Quick Start
 

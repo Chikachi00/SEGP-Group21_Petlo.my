@@ -63,3 +63,7 @@ This is a proposed system direction. The web interface, REST API and development
 ## Implemented local integration
 
 `React Live pages → FastAPI → SQLAlchemy + local SQLite / configured MySQL`. Uploads are stored outside source code. A single background executor invokes the original source packet, detector, trackers, joint/event scripts and candidate-statistics adapter in isolated job directories. Original verified CFR evidence previews stay with CV review; a separate H.264 preview preserves relative source timestamps for API playback. The public Pages app only serves the static frontend. Local development is loopback-only; authentication and a remote worker/storage service remain required for public integration.
+
+### Local demo task and report flow
+
+`Upload → persisted session/current_job_id → /sessions/:id/analysis → saved report`. Status pages restore server-side identity after navigation/reload and only observe the existing task. A reconnect action resumes GET polling, never repeats the analysis POST. The saved list refreshes while it contains active work. Persisted job submission/completion timestamps drive elapsed time; status-query success is not a worker heartbeat. Report JSON and per-view event CSV preserve candidate semantics, unknown rates and independent source clocks. Startup scripts bind services to loopback and retain private runtime artifacts under ignored directories.

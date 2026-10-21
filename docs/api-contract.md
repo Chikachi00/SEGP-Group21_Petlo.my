@@ -156,3 +156,9 @@ Agree authentication/dog lookup and upload limits; provide backend startup instr
 `GET /videos/{video_id}/playback` serves the generated H.264 source-time preview with byte Range support (206). Before successful analysis, playback_url/preview_url are null; the original HEVC file is not assumed to be browser playable. The configured upload limit defaults to 1024 MiB per file. Multipart overhead has a separate small allowance; actual file bytes are also checked. Backend errors and source filenames never expose an arbitrary filesystem read endpoint.
 
 The job runner uses one local executor and records queued/running/completed/failed states in the database. It saves results transactionally. On service restart, interrupted active jobs become failed with SERVER_RESTARTED; no automatic job replay is attempted. Generated evidence stays per job. MySQL extension tables are additive; default development uses SQLite.
+
+## Local demonstration additions (2026-10-21)
+
+Job responses additionally include persisted `created_at` and nullable `finished_at` timestamps, in UTC ISO 8601 format. Elapsed time includes queue waiting, and freezes at `finished_at` for completed/failed jobs. A successful GET is a status-check timestamp, not an inference heartbeat. Polling/reloading does not enqueue work. The API remains loopback-only; no database migration is needed for these already persisted columns.
+
+The frontend task route `/sessions/:id/analysis` restores `current_job_id` from the session endpoint. Local report JSON includes session identity, algorithm version, limitations, candidate statistics and per-view event intervals; event CSV has one row per event/view, with `human_verified=false`. Downloads do not change machine predictions or supply human labels to inference.

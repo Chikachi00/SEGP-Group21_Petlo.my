@@ -74,3 +74,17 @@ npm run build
 上传新增 `backend/` 源码/依赖说明/测试、`src/` API 文件和 Live 页面、新数据库扩展迁移文件、文档、`.env.example`、更新的 `.gitignore` 与 `package.json`。保持目录路径，通过本地 Git/GitHub Desktop 提交更容易完整处理这些文件。先检查 `git status --short`。
 
 不要上传 `backend/.env`、`.env.local`、`backend/data/`、`outputs/`、模型、私有视频或 `node_modules/`。本次不自动提交、推送或更新 Cloudflare。原 Pages 仍是演示站；即使上传后端代码，它也不会自动部署 Python 算法。当前服务仅接受本机请求，真正公开部署前还需要登录权限、远端运行环境和视频存储配置。
+
+## 6. Local presentation launcher and task page
+
+For the 2026-10-22 presentation, start from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-local-demo.ps1 -OpenBrowser
+```
+
+The launcher preserves existing `.env` files, checks Python/model/FFmpeg availability, binds new services to loopback, reuses existing healthy endpoints and writes script-started service logs under `outputs/local-demo/`. It does not install or upgrade packages. Use `-CheckOnly` for readiness checks. Stop only script-started idle services with `scripts/stop-local-demo.ps1`; manually started terminals remain user-controlled.
+
+Accepted uploads navigate to `/sessions/:id/analysis`. Refresh or return from the saved list to observe the same task. The page displays actual stages and submission elapsed time without invented percentage/ETA. Connection errors can resume observation without submitting another job. Completed reports export JSON and per-view CSV, preserving candidate terminology and nullable rates.
+
+See [local presentation checklist](local-demo-checklist.md) for the full sample verification command, saved-result fallback, timing and known limitations. The local limit stays 1024 MiB by default so the original side sample can be tested without destructive downscaling; public deployment limits are a separate concern.

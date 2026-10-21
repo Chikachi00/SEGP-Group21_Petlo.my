@@ -29,7 +29,7 @@ The frontend example sets `VITE_USE_API=true` and `VITE_API_BASE_URL=http://loca
 ## Files and persistence
 
 - `config.py`: private server environment configuration.
-- `db.py`: mappings for the existing `user_login`, `dogs`, `video` tables plus five new `analysis_*` tables. It does not change `database/petlo.sql` or use compulsory uncalibrated distance/height values.
+- `db.py`: mappings for the existing `user_login`, `dogs`, `video` tables plus four new `analysis_*` tables. It does not change `database/petlo.sql` or use compulsory uncalibrated distance/height values.
 - `main.py`, `schemas.py`: local HTTP routes, ownership checks, request schemas, multipart upload limits, structured errors, CORS, and Range-capable MP4 playback.
 - `jobs.py`: a single background inference executor, durable job records, atomic result saving and explicit interrupted-job failures on restart.
 - `pipeline.py`: isolated per-job inputs, safe subprocess argument lists, original CV commands, original verified evidence previews and a separate source-time H.264 browser preview.
@@ -43,7 +43,7 @@ Default runtime paths are ignored by Git: `backend/data/petlo.sqlite3`, `outputs
 
 Import the original `database/petlo.sql` into a local MySQL database and ensure it has a real `user_login` row and associated `dogs` rows. Configure the backend environment with a private SQLAlchemy URL such as `mysql+pymysql://USER:PASSWORD@127.0.0.1/petlo`, `PETLO_SEED_DEMO=false`, and the existing `PETLO_LOCAL_USER_ID`. Escape special password characters in the URL. Start Uvicorn with `--env-file backend/.env`; the new `analysis_*` tables are created additively, while legacy `session_statistics` and `session_video` remain untouched.
 
-`database/migrations/20261020_api_extension.sql` is a generated MySQL DDL alternative for those five new tables. It does not import users, modify legacy columns, or calculate physical measurements. Use either the schema initializer or a reviewed migration workflow. The default SQLite flow is integration-tested; a live MySQL connection must still be validated with the teammate's actual server/configuration.
+`database/migrations/20261020_api_extension.sql` is a generated MySQL DDL alternative for those four new tables. It does not import users, modify legacy columns, or calculate physical measurements. Use either the schema initializer or a reviewed migration workflow. The default SQLite flow is integration-tested; a live MySQL connection must still be validated with the teammate's actual server/configuration.
 
 ## Analysis modes
 
@@ -68,3 +68,7 @@ Backend unit tests deliberately inject a test-only runner; production uses `Pipe
 ## Deployment boundary
 
 This version rejects non-loopback clients and unlisted browser origins. It is intentionally usable only on the local machine until proper authentication and multi-user access are implemented. Do not expose it with a tunnel, bind publicly, or connect the public Pages site to a user's localhost service. Uploading Python files to GitHub does not run them on Pages. Cloudflare can keep hosting the static frontend; a real remote backend needs a compatible Python runtime, private media storage, persistent job execution, HTTPS, credentials/authorization and production CORS. No remote deployment or Git push is performed here.
+
+## Local presentation tools
+
+Use `scripts/start-local-demo.ps1` from the repository root for a checked loopback-only startup, and `docs/local-demo-checklist.md` for rehearsal. `python -m backend.demo_check --sample-dir PATH` submits the complete original paired samples through the running API, saves a verification record under `outputs/demo-check-*`, and retains the report in the configured local database. This is a real analysis job, not a cached demonstration or an accuracy evaluation.
