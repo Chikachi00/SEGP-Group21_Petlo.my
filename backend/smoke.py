@@ -49,7 +49,7 @@ def main():
             if (job['status'], job['stage']) != previous:
                 print(json.dumps(job), flush=True)
                 previous = job['status'], job['stage']
-            if job['status'] in ('completed', 'failed'):
+            if job['status'] in ('completed', 'failed', 'cancelled'):
                 break
             time.sleep(1)
         if job['status'] != 'completed':

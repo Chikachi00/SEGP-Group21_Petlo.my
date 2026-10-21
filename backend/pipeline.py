@@ -39,6 +39,7 @@ def validate_selection(mode, videos):
 
 
 class PipelineRunner:
+    supports_job_control = True
     def __init__(self, settings):
         self.settings = settings
 
@@ -55,7 +56,7 @@ class PipelineRunner:
             raise ValueError('Local YOLO weights are missing. Configure PETLO_MODEL_PATH first.')
         self.tools()
 
-    def run(self, job_id, mode, videos, update):
+    def run(self, job_id, mode, videos, update, control=None):
         from cv.build_throw_statistics import bucket_outcome, summarize
         validate_selection(mode, videos)
         self.check_ready()
@@ -68,8 +69,11 @@ class PipelineRunner:
         def command(stage, args):
             update(stage)
             with log.open('ab') as output:
-                subprocess.run([str(a) for a in args], cwd=ROOT, shell=False, stdout=output,
-                               stderr=subprocess.STDOUT, check=True, timeout=self.settings.stage_timeout)
+                if control is not None:
+                    control.command(args, cwd=ROOT, stdout=output, timeout=self.settings.stage_timeout)
+                else:
+                    subprocess.run([str(a) for a in args], cwd=ROOT, shell=False, stdout=output,
+                                   stderr=subprocess.STDOUT, check=True, timeout=self.settings.stage_timeout)
 
         def script(stage, name, *args):
             command(stage, [sys.executable, ROOT / 'cv' / name, *args])

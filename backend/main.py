@@ -16,10 +16,11 @@ from sqlalchemy import func, select, update
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings
-from .db import Dog, Event, Job, LegacyVideo, TrainingSession, Video, database, initialize, now
+from .db import Dog, Event, Job, LegacyVideo, TrainingSession, SessionPreferences, Video, database, initialize, now
 from .jobs import JobManager
+from .process_control import ACTIVE, TERMINAL
 from .pipeline import PipelineRunner, inside, validate_selection
-from .schemas import CreateDog, CreateSession, DetailOut, JobOut, SessionListOut, SessionOut, StartAnalysis, VideoOut
+from .schemas import ControlJob, RenameSession, CreateDog, CreateSession, DetailOut, JobOut, SessionListOut, SessionOut, StartAnalysis, VideoOut
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def create_app(settings=None, runner=None):
     app = FastAPI(title='Petlo local integration API', version='1.0.0', lifespan=lifespan)
     app.state.sessions, app.state.settings, app.state.runner = sessions, config, worker
     app.add_middleware(UploadBodyLimit, max_bytes=config.max_upload_bytes + 65536)
-    app.add_middleware(CORSMiddleware, allow_origins=list(config.origins), allow_methods=['GET', 'POST', 'OPTIONS'],
+    app.add_middleware(CORSMiddleware, allow_origins=list(config.origins), allow_methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
                        allow_headers=['Content-Type'], expose_headers=['X-Request-ID'], allow_credentials=False)
 
     @app.middleware('http')
@@ -106,16 +107,24 @@ def create_app(settings=None, runner=None):
         return response_error(422, 'INVALID_REQUEST', 'Request validation failed.', request.state.request_id,
                               [{'field': list(e['loc']), 'message': e['msg']} for e in exc.errors()])
 
-    def owned(db, identity):
+    def owned(db, identity, include_deleted=False):
         value = db.get(TrainingSession, identity)
         if not value or value.trainer_id != config.local_user_id:
             problem(404, 'SESSION_NOT_FOUND', 'Session not found.')
+        preferences = db.get(SessionPreferences, identity)
+        if preferences and preferences.deleted_at and not include_deleted:
+            problem(404, 'SESSION_IN_TRASH', 'This session is in Trash. Restore it first.')
         return value
 
     def summary(db, value):
         job = db.get(Job, value.current_job_id) if value.current_job_id else None
         result = job.result_json if job and job.status == 'completed' else None
+        preferences = db.get(SessionPreferences, value.session_id)
+        views = set(db.scalars(select(Video.camera_perspective).where(Video.session_id == value.session_id)))
+        default_name = 'Front + Side session' if len(views) == 2 else 'Side view session' if views == {'side'} else 'Front view session' if views == {'front'} else 'Training session'
         return {'session_id': value.session_id, 'dog_id': str(value.dog_id), 'date': value.recorded_at,
+                'name': preferences.display_name if preferences and preferences.display_name else default_name,
+                'deleted_at': preferences.deleted_at if preferences else None,
                 'status': value.status, 'statistics': result['statistics'] if result else None}
 
     def video_json(value, request):
@@ -163,6 +172,9 @@ def create_app(settings=None, runner=None):
                                     recorded_at=body.recorded_at.astimezone(timezone.utc).isoformat() if body.recorded_at else now(), status='draft')
             db.add(value)
             db.flush()
+            if body.name:
+                db.add(SessionPreferences(session_id=value.session_id, display_name=body.name))
+                db.flush()
             return summary(db, value)
 
     @app.post('/api/v1/sessions/{session_id}/videos', status_code=201, response_model=VideoOut)
@@ -224,7 +236,7 @@ def create_app(settings=None, runner=None):
     def analyze(session_id: str, body: StartAnalysis, request: Request):
         with lock, sessions.begin() as db:
             parent = owned(db, session_id)
-            if parent.status in ('queued', 'running'):
+            if parent.status in ACTIVE:
                 problem(409, 'JOB_ALREADY_RUNNING', 'This session already has an active analysis job.')
             videos = [db.get(Video, identity) for identity in body.video_ids]
             if any(not value or value.session_id != session_id for value in videos):
@@ -238,7 +250,7 @@ def create_app(settings=None, runner=None):
             except Exception:
                 problem(503, 'ANALYZER_UNAVAILABLE', 'Configure the local YOLO model and FFmpeg before starting analysis.')
             changed = db.execute(update(TrainingSession).where(TrainingSession.session_id == session_id,
-                TrainingSession.status.not_in(['queued', 'running'])).values(status='queued'))
+                TrainingSession.status.not_in(ACTIVE)).values(status='queued'))
             if changed.rowcount != 1:
                 problem(409, 'JOB_ALREADY_RUNNING', 'Another request already started analysis.')
             value = Job(job_id=uuid.uuid4().hex, session_id=session_id, status='queued', stage='queued',
@@ -258,6 +270,67 @@ def create_app(settings=None, runner=None):
             problem(503, 'QUEUE_UNAVAILABLE', 'Could not submit analysis.')
         return result
 
+    @app.patch('/api/v1/sessions/{session_id}', response_model=SessionOut)
+    def rename_session(session_id: str, body: RenameSession):
+        with lock, sessions.begin() as db:
+            parent = owned(db, session_id)
+            preferences = db.get(SessionPreferences, session_id)
+            if preferences is None:
+                preferences = SessionPreferences(session_id=session_id)
+                db.add(preferences)
+            preferences.display_name = body.name
+            db.flush()
+            return summary(db, parent)
+
+    @app.delete('/api/v1/sessions/{session_id}', response_model=SessionOut)
+    def trash_session(session_id: str, request: Request):
+        # Do not hold a database transaction while waiting for the job-control lock.
+        with lock:
+            with sessions() as db:
+                parent = owned(db, session_id, include_deleted=True)
+                job_id = parent.current_job_id
+                active = bool(job_id and db.get(Job, job_id).status in ACTIVE)
+            if active:
+                try:
+                    request.app.state.jobs.request(job_id, 'cancel')
+                except ValueError:
+                    with sessions() as db:
+                        if db.get(Job, job_id).status in ACTIVE:
+                            problem(409, 'TASK_CONTROL_UNAVAILABLE', 'Stop the active task before deleting this session.')
+            with sessions.begin() as db:
+                parent = owned(db, session_id, include_deleted=True)
+                preferences = db.get(SessionPreferences, session_id)
+                if preferences is None:
+                    preferences = SessionPreferences(session_id=session_id)
+                    db.add(preferences)
+                preferences.deleted_at = preferences.deleted_at or now()
+                db.flush()
+                return summary(db, parent)
+
+    @app.post('/api/v1/sessions/{session_id}/restore', response_model=SessionOut)
+    def restore_session(session_id: str):
+        with lock, sessions.begin() as db:
+            parent = owned(db, session_id, include_deleted=True)
+            preferences = db.get(SessionPreferences, session_id)
+            if preferences:
+                preferences.deleted_at = None
+            db.flush()
+            return summary(db, parent)
+
+    @app.post('/api/v1/jobs/{job_id}/control', response_model=JobOut)
+    def control_job(job_id: str, body: ControlJob, request: Request):
+        with sessions() as db:
+            job = db.get(Job, job_id)
+            if job is None:
+                problem(404, 'JOB_NOT_FOUND', 'Job not found.')
+            owned(db, job.session_id)
+        try:
+            request.app.state.jobs.request(job_id, body.action)
+        except ValueError as exc:
+            problem(409, 'TASK_NOT_ACTIVE', str(exc))
+        with sessions() as db:
+            return job_json(db.get(Job, job_id))
+
     @app.get('/api/v1/jobs/{job_id}', response_model=JobOut)
     def get_job(job_id: str):
         with sessions() as db:
@@ -268,11 +341,12 @@ def create_app(settings=None, runner=None):
             return job_json(value)
 
     @app.get('/api/v1/sessions', response_model=SessionListOut)
-    def list_sessions(page: int = 1, page_size: int = 20):
+    def list_sessions(page: int = 1, page_size: int = 20, trash: bool = False):
         if page < 1 or not 1 <= page_size <= 100:
             problem(422, 'INVALID_PAGE', 'Use page >= 1 and page_size from 1 to 100.')
         with sessions() as db:
-            query = select(TrainingSession).where(TrainingSession.trainer_id == config.local_user_id)
+            query = select(TrainingSession).outerjoin(SessionPreferences).where(TrainingSession.trainer_id == config.local_user_id,
+                SessionPreferences.deleted_at.is_not(None) if trash else SessionPreferences.deleted_at.is_(None))
             total = db.scalar(select(func.count()).select_from(query.subquery()))
             values = db.scalars(query.order_by(TrainingSession.recorded_at.desc(), TrainingSession.session_id.desc()).offset((page - 1) * page_size).limit(page_size))
             return {'items': [summary(db, value) for value in values], 'page': page, 'page_size': page_size, 'total': total}

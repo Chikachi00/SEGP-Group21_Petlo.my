@@ -51,6 +51,13 @@ class TrainingSession(Base):
     current_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
+class SessionPreferences(Base):
+    __tablename__ = 'analysis_session_preferences'
+    session_id: Mapped[str] = mapped_column(ForeignKey('analysis_sessions.session_id'), primary_key=True)
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    deleted_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
 class Video(Base):
     __tablename__ = 'analysis_videos'
     __table_args__ = (UniqueConstraint('session_id', 'camera_perspective'),)
@@ -108,7 +115,7 @@ def initialize(engine, sessions, settings):
         if not db.get(User, settings.local_user_id):
             raise ValueError('PETLO_LOCAL_USER_ID must reference an existing user_login record')
         # Interrupted jobs are explicit failures; never replay work invisibly on restart.
-        for job in db.scalars(select(Job).where(Job.status.in_(['queued', 'running']))):
+        for job in db.scalars(select(Job).where(Job.status.in_(['queued', 'running', 'pausing', 'paused', 'cancelling']))):
             job.status, job.stage = 'failed', 'interrupted'
             job.error_json = {'code': 'SERVER_RESTARTED', 'message': 'Analysis was interrupted. Start a new job.'}
             job.finished_at = now()

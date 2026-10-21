@@ -71,7 +71,7 @@ def main():
                     print(state, report['stages'][-1]['elapsed_seconds'], 'seconds', flush=True)
                     last = state
                     save()
-                if job['status'] in ('completed', 'failed'):
+                if job['status'] in ('completed', 'failed', 'cancelled'):
                     break
                 if time.monotonic() > deadline:
                     raise TimeoutError('Stopped observing; the accepted server task may still be running.')

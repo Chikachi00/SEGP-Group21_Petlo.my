@@ -5,9 +5,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class CreateSession(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     dog_id: str = Field(min_length=1)
     recorded_at: datetime | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=120)
 
     @field_validator('recorded_at')
     @classmethod
@@ -15,6 +16,16 @@ class CreateSession(BaseModel):
         if value and value.tzinfo is None:
             raise ValueError('recorded_at requires a timezone')
         return value
+
+
+class RenameSession(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=120)
+
+
+class ControlJob(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    action: Literal['pause', 'resume', 'cancel']
 
 
 class CreateDog(BaseModel):
@@ -56,8 +67,10 @@ class StatisticsOut(BaseModel):
 class SessionOut(BaseModel):
     session_id: str
     dog_id: str
+    name: str
+    deleted_at: str | None
     date: str
-    status: Literal['draft', 'ready', 'queued', 'running', 'completed', 'failed']
+    status: Literal['draft', 'ready', 'queued', 'running', 'pausing', 'paused', 'cancelling', 'completed', 'failed', 'cancelled']
     statistics: StatisticsOut | None
 
 
@@ -108,7 +121,7 @@ class JobErrorOut(BaseModel):
 class JobOut(BaseModel):
     job_id: str
     session_id: str
-    status: Literal['queued', 'running', 'completed', 'failed']
+    status: Literal['queued', 'running', 'pausing', 'paused', 'cancelling', 'completed', 'failed', 'cancelled']
     progress_percent: float | None = Field(ge=0, le=100)
     stage: str | None
     error: JobErrorOut | None
