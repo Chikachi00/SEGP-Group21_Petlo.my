@@ -10,6 +10,8 @@ import numpy as np
 
 from cv.throw_events import EventSettings,analyze_events,observed_points,link_proposals,resolve_links
 from cv.analyze_throw_events import crop_bounds,colour_feature,validate_ground,run,make_link_features
+from cv.analyze_throw_events_v3 import run as run_v3
+from cv.throw_events_v3 import analyze_events as analyze_v3
 from cv.analyze_dog_disc import sha256,write_json
 from cv.video_tools.media import Toolchain,scan_video
 
@@ -198,6 +200,11 @@ class EpisodeEvidenceTests(unittest.TestCase):
 
 class EventMediaTests(unittest.TestCase):
     def test_complete_real_source_pipeline_crops_cache_and_prior_artifacts_unchanged(self):
+        for runner,version in ((run,2),(run_v3,3)):
+            with self.subTest(version=version):
+                self._check_media_pipeline(runner,version)
+
+    def _check_media_pipeline(self,runner,version):
         tools=Toolchain.discover()
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);raw=root/'raw';raw.mkdir();pack=root/'pack';pack.mkdir();joint=root/'joint';joint.mkdir()
@@ -222,7 +229,16 @@ class EventMediaTests(unittest.TestCase):
             write_json(preview.with_suffix('.json'),{'status':'complete','signature':{'source_sha256':v['source_sha256'],'source_frames':len(records)},'sha256':sha256(preview)})
             before={str(p):sha256(p) for p in (source,states,joint/'summary.json',detector,tracker)}
             args=(joint,detector,pack,root/'events',preview)
-            summary=run(*args,ffmpeg_dir=Path(tools.ffmpeg).parent)
+            summary=runner(*args,ffmpeg_dir=Path(tools.ffmpeg).parent)
+            self.assertEqual(summary['provenance']['schema_version'],version)
+            self.assertIn('throw_events.py',summary['provenance']['code'])
+            self.assertIn('analyze_throw_events.py',summary['provenance']['code'])
+            self.assertIn(f'events-v{version}.json',summary['artifact_sha256'])
+            if version==3:
+                self.assertIn('throw_events_v3.py',summary['provenance']['code'])
+                self.assertIn('analyze_throw_events_v3.py',summary['provenance']['code'])
+                allowed=json.loads((args[3]/'manual-review-template.json').read_text())['reviews'][0]['allowed_outcomes']
+                self.assertIn('ground_pickup',allowed)
             self.assertEqual(summary['processed_frames'],75)
             self.assertEqual(summary['episode_candidates'],1)
             self.assertEqual(summary['outcome_candidates'],{'catch_candidate':1})
@@ -247,10 +263,46 @@ class EventMediaTests(unittest.TestCase):
                 self.assertEqual(item['pts_sec'],records[item['frame_id']]['pts_sec'])
                 image=cv2.imread(str(link_temp/item['file']))
                 self.assertEqual(image.shape[:2],(10,20))
-            self.assertEqual(summary['cache_key'],run(*args,ffmpeg_dir=Path(tools.ffmpeg).parent)['cache_key'])
-            (args[3]/'events-v2.json').write_text('edited')
-            with self.assertRaisesRegex(ValueError,'cache modified'):run(*args,ffmpeg_dir=Path(tools.ffmpeg).parent)
-            with self.assertRaisesRegex(ValueError,'independent event'):run(joint,detector,pack,joint/'new',preview,ffmpeg_dir=Path(tools.ffmpeg).parent)
+            self.assertEqual(summary['cache_key'],runner(*args,ffmpeg_dir=Path(tools.ffmpeg).parent)['cache_key'])
+            (args[3]/f'events-v{version}.json').write_text('edited')
+            with self.assertRaisesRegex(ValueError,'cache modified'):runner(*args,ffmpeg_dir=Path(tools.ffmpeg).parent)
+            with self.assertRaisesRegex(ValueError,'independent event'):runner(joint,detector,pack,joint/'new',preview,ffmpeg_dir=Path(tools.ffmpeg).parent)
+
+
+class EventV3EvidenceTests(unittest.TestCase):
+    def test_sustained_carry_keeps_candidate_and_real_source_times(self):
+        frames,detections=fixture()
+        events,ledger,_=analyze_v3(frames,detections,1000,600)
+        self.assertEqual([e['predicted_outcome'] for e in events],['catch_candidate'])
+        self.assertFalse(events[0]['carry_evidence']['mouth_localized'])
+        self.assertEqual([r['t_sec'] for r in ledger],[r['t_sec'] for r in frames])
+
+    def test_interception_then_loss_remains_a_candidate(self):
+        events,_,_=analyze_v3(*fixture(missing=range(23,75)),1000,600)
+        self.assertEqual(events[0]['predicted_outcome'],'catch_candidate')
+        self.assertEqual(events[0]['termination'],'interception_then_disc_loss_candidate')
+        self.assertFalse(events[0]['catch_evidence']['mouth_localized'])
+
+    def test_descending_disc_then_dog_arrival_is_separate_ground_pickup(self):
+        frames,detections=fixture(missing=range(21,75))
+        for index,row in enumerate(frames):
+            row['dog']['bbox']=[650.,100.,720.,210.] if index<23 else [385.,330.,455.,440.]
+            disc=row['discs'][0]
+            if disc['bbox'] is not None:
+                disc['bbox'][1:4:2]=[150+index*.04*300,160+index*.04*300]
+        events,_,_=analyze_v3(frames,detections,1000,600)
+        self.assertEqual(events[0]['predicted_outcome'],'ground_pickup_candidate')
+        self.assertFalse(events[0]['pickup_evidence']['ground_contact_directly_observed'])
+        self.assertIn('ground_contact_not_directly_observed',events[0]['uncertainty_reasons'])
+
+    def test_missing_disc_before_contact_does_not_imply_catch(self):
+        events,_,_=analyze_v3(*fixture(missing=range(18,75)),1000,600)
+        self.assertEqual(events[0]['predicted_outcome'],'uncertain')
+
+    def test_handheld_does_not_use_fixed_camera_interception_rule(self):
+        events,_,_=analyze_v3(*fixture(missing=range(23,75)),1000,600,camera='handheld')
+        self.assertTrue(events)
+        self.assertTrue(all(e['predicted_outcome']=='uncertain' for e in events))
 
 
 if __name__=='__main__':unittest.main()

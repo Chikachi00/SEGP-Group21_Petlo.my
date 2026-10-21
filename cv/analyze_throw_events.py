@@ -138,6 +138,12 @@ def make_contact_crops(video,records,frames,events,tools,temp):
 
 
 def run(joint_dir,detections,pack,output_dir,preview,settings=None,ground_path=None,ffmpeg_dir=None):
+    return _run_analysis(joint_dir,detections,pack,output_dir,preview,settings,ground_path,ffmpeg_dir,
+                         analyzer=analyze_events,version=2)
+
+
+def _run_analysis(joint_dir,detections,pack,output_dir,preview,settings=None,ground_path=None,ffmpeg_dir=None,
+                  *,analyzer,version):
     started=time.perf_counter();cfg=settings or EventSettings()
     joint,detections,pack,output,preview=map(lambda p:Path(p).resolve(),(joint_dir,detections,pack,output_dir,preview))
     ground_path=Path(ground_path).resolve() if ground_path else None
@@ -161,16 +167,18 @@ def run(joint_dir,detections,pack,output_dir,preview,settings=None,ground_path=N
     labels=validate_ground(ground_path,video,points)
     tools=Toolchain.discover(ffmpeg_dir)
     names=['throw_events.py','analyze_throw_events.py','joint_analysis.py','analyze_dog_disc.py','track_dog_video.py','dog_tracker.py','detect_disc_video.py','video_tools/media.py','video_tools/review.py']
+    if version==3:names=['throw_events_v3.py','analyze_throw_events_v3.py',*names]
+    event_file=f'events-v{version}.json'
     inputs=[joint/'summary.json',joint/'joint-states.jsonl',detections,detections.with_suffix('.json'),pack/'manifest.json',pack/video['paths']['frame_index'],preview,preview.with_suffix('.json')]
     if ground_path:inputs.append(ground_path)
-    signature={'schema_version':2,'video_id':video['id'],'source_sha256':video['source_sha256'],'settings':asdict(cfg),'camera':video['camera'],
+    signature={'schema_version':version,'video_id':video['id'],'source_sha256':video['source_sha256'],'settings':asdict(cfg),'camera':video['camera'],
                'toolchain':tools.version,'opencv':cv2.__version__,'inputs':{str(p):sha256(p) for p in inputs},
                'code':{n:sha256(Path(__file__).parent/n) for n in names},'output_dir':str(output)}
     key=hashlib.sha256(json.dumps(signature,sort_keys=True).encode()).hexdigest()
     if output.exists():
         cached=read_json(output/'summary.json')
         artifacts=cached.get('artifact_sha256',{})
-        if cached.get('status')!='complete' or cached.get('cache_key')!=key or not {'events-v2.json','event-states.jsonl','index.html','crop-index.json'}.issubset(artifacts):raise ValueError('Existing event output differs; choose a new directory')
+        if cached.get('status')!='complete' or cached.get('cache_key')!=key or not {event_file,'event-states.jsonl','index.html','crop-index.json'}.issubset(artifacts):raise ValueError('Existing event output differs; choose a new directory')
         for name,digest in artifacts.items():
             target=(output/name).resolve()
             if not target.is_relative_to(output) or sha256(target)!=digest:raise ValueError('Event cache modified; choose a new directory')
@@ -180,10 +188,10 @@ def run(joint_dir,detections,pack,output_dir,preview,settings=None,ground_path=N
         proposals=link_proposals(points,video['width'],video['height'],video['camera'],cfg)
         print(f'{video["id"]}: {len(proposals)} geometric identity-link proposals; reading actual endpoint crops',flush=True)
         features,link_images=make_link_features(video,records,points,proposals,tools,temp)
-        events,ledger,diagnostics=analyze_events(frames,detector_rows,video['width'],video['height'],video['camera'],cfg,features,labels)
+        events,ledger,diagnostics=analyzer(frames,detector_rows,video['width'],video['height'],video['camera'],cfg,features,labels)
         print(f'{video["id"]}: {len(events)} episode candidates; preparing bounded contact crops',flush=True)
         crop_index=make_contact_crops(video,records,frames,events,tools,temp)
-        write_json(temp/'events-v2.json',{'schema_version':2,'video_id':video['id'],'event_candidates':events,'confirmed_results_available':False})
+        write_json(temp/event_file,{'schema_version':version,'video_id':video['id'],'event_candidates':events,'confirmed_results_available':False})
         (temp/'event-states.jsonl').write_text(''.join(json.dumps(r,allow_nan=False)+'\n' for r in ledger),encoding='utf-8')
         write_json(temp/'diagnostics.json',diagnostics)
         write_json(temp/'crop-index.json',{'video_id':video['id'],'link_endpoint_images':link_images,'contact_images':crop_index,
@@ -191,10 +199,10 @@ def run(joint_dir,detections,pack,output_dir,preview,settings=None,ground_path=N
         write_json(temp/'manual-review-template.json',{'video_id':video['id'],'source_sha256':video['source_sha256'],
                    'instructions':'Copy before editing. Predicted outcomes are unverified; retain uncertain when evidence is insufficient. No automatic review import in this version.',
                    'reviews':[{'throw_id':e['throw_id'],'review_status':'unreviewed','confirmed_throw':None,'verified_outcome':None,
-                               'allowed_outcomes':['catch','miss','uncertain','false_candidate'],'reviewer':None,'evidence_frames':[],'notes':''} for e in events]})
+                               'allowed_outcomes':(['catch','ground_pickup','miss','uncertain','false_candidate'] if version==3 else ['catch','miss','uncertain','false_candidate']),'reviewer':None,'evidence_frames':[],'notes':''} for e in events]})
         write_json(temp/'ground-contact-template.json',{'video_id':video['id'],'source_sha256':video['source_sha256'],'ground_contacts':[],
                    'example_only':{'disc_id':'disc-XXX','frame_id':0,'verified':True,'reviewer':'REPLACE_WITH_REVIEWER','notes':'Observed ground contact on this original frame; example is not used.'}})
-        (temp/'index.html').write_text(review_page(video,frames,ledger,events,crop_index,preview,output),encoding='utf-8')
+        (temp/'index.html').write_text(review_page(video,frames,ledger,events,crop_index,preview,output,version=version),encoding='utf-8')
         if any(sha256(p)!=h for p,h in signature['inputs'].items()) or sha256(video['source'])!=video['source_sha256']:raise ValueError('Input changed during event analysis')
         summary={'status':'complete','video_id':video['id'],'cache_key':key,'provenance':signature,**diagnostics['metrics'],
                  'processing_seconds':time.perf_counter()-started,'contact_crop_frames':len(crop_index),
@@ -220,7 +228,7 @@ def run(joint_dir,detections,pack,output_dir,preview,settings=None,ground_path=N
             temp.rmdir()
 
 
-def review_page(video,frames,ledger,events,crops,preview,output):
+def review_page(video,frames,ledger,events,crops,preview,output,*,version=2):
     src=quote(os.path.relpath(preview,output).replace('\\','/'),safe='/.:')
     buttons=''.join(f'<button data-event="{i}">{e["throw_id"]} | {e["start_sec"]:.3f}–{e["end_sec"]:.3f}s | {html.escape(e["predicted_outcome"])}</button>' for i,e in enumerate(events))
     payload={'fps':video['metadata']['avg_frame_rate'],'width':video['width'],'height':video['height'],'frames':frames,'ledger':ledger,'events':events,'crops':crops}
@@ -237,12 +245,14 @@ function box(b,color,text,dash=false){if(!b)return;ctx.strokeStyle=color;ctx.lin
 function draw(i){i=Math.max(0,Math.min(data.frames.length-1,i));slider.value=i;const f=data.frames[i],r=data.ledger[i];ctx.clearRect(0,0,c.width,c.height);box(f.dog.bbox,'#50ed65',f.dog.track_id||'Dog');if(pred.checked)box(f.dog.prediction_bbox,'#ffe04b','Dog prediction',true);for(const d of f.discs){if(!all.checked&&selected&&!selected.disc_ids.includes(d.disc_id))continue;box(d.bbox,'#35cafa',`${d.disc_id}${d.measurement_source==='local_visual'?' VISUAL':''}`);if(pred.checked)box(d.prediction_bbox,'#ffe04b',`${d.disc_id} Prediction`,true);}const active=r.events.filter(e=>!selected||e.throw_id===selected.throw_id);ctx.fillStyle='#151a1edc';ctx.fillRect(0,0,c.width,Math.max(42,data.width/40));ctx.fillStyle='white';ctx.font=`${Math.max(16,data.width/100)}px sans-serif`;ctx.fillText(active.map(e=>`${e.throw_id}: ${names[e.phase]} | ${e.predicted_outcome}`).join(' / ')||'No active episode candidate',12,Math.max(28,data.width/65));document.getElementById('clock').textContent=`Source frame ${f.frame_id} | Source time ${f.t_sec.toFixed(6)}s | Dog observed: ${!!f.dog.bbox}`;}
 function seek(i){draw(i);if(v.readyState===0)pending=i;else v.currentTime=(i+.5)/data.fps;}v.addEventListener('loadedmetadata',()=>{if(pending!==null){const i=pending;pending=null;seek(i);}});['timeupdate','seeked'].forEach(e=>v.addEventListener(e,()=>draw(Math.floor(v.currentTime*data.fps+1e-6))));slider.addEventListener('input',()=>{v.pause();seek(Number(slider.value));});pred.addEventListener('change',()=>draw(Number(slider.value)));all.addEventListener('change',()=>draw(Number(slider.value)));document.getElementById('step').addEventListener('click',()=>{v.pause();seek(Math.min(data.frames.length-1,Number(slider.value)+1));});
 document.querySelectorAll('[data-event]').forEach(b=>b.addEventListener('click',()=>{selected=data.events[Number(b.dataset.event)];document.getElementById('event').textContent=JSON.stringify(selected,null,2);const pane=document.querySelector('.crops');pane.replaceChildren();for(const p of data.crops.filter(p=>p.throw_id===selected.throw_id)){const a=document.createElement('a'),img=document.createElement('img'),parent=document.createElement('a');a.href=p.file;img.src=p.file;img.alt=`${p.throw_id} source frame ${p.frame_id}`;a.append(img,document.createTextNode(`Frame ${p.frame_id}, ${p.t_sec.toFixed(3)}s`));parent.href=p.parent_file;parent.textContent='Full-frame reference';const card=document.createElement('div');card.append(a,document.createElement('br'),parent);pane.append(card);}v.pause();seek(data.frames.findIndex(f=>f.t_sec>=selected.review_start_sec));}));draw(0);</script></html>'''
+    if version==3:
+        page=page.replace('Throw Event Review','Throw Event Review v3').replace('events-v2.json','events-v3.json').replace('Events v2','Events v3')
     for marker,value in [('WIDTH',str(video['width'])),('HEIGHT',str(video['height'])),('VIDEO',html.escape(video['id'])),('SRC',html.escape(src,quote=True)),('MAX',str(len(frames)-1)),('BUTTONS',buttons),('PAYLOAD',json.dumps(payload,ensure_ascii=False,allow_nan=False).replace('<','\\u003c'))]:page=page.replace(marker,value)
     return page
 
 
-def main():
-    parser=argparse.ArgumentParser(description=__doc__)
+def main(*,runner=run,description=__doc__):
+    parser=argparse.ArgumentParser(description=description)
     parser.add_argument('--joint-dir',type=Path,required=True)
     parser.add_argument('--detections',type=Path,required=True)
     parser.add_argument('--pack',type=Path,default=PROJECT/'outputs'/'video-analysis-pack')
@@ -251,7 +261,7 @@ def main():
     parser.add_argument('--ground-evidence',type=Path)
     parser.add_argument('--ffmpeg-dir',type=Path)
     args=parser.parse_args()
-    try:run(args.joint_dir,args.detections,args.pack,args.output_dir,args.preview,ground_path=args.ground_evidence,ffmpeg_dir=args.ffmpeg_dir)
+    try:runner(args.joint_dir,args.detections,args.pack,args.output_dir,args.preview,ground_path=args.ground_evidence,ffmpeg_dir=args.ffmpeg_dir)
     except (ValueError,OSError,RuntimeError,KeyError,StopIteration) as exc:parser.exit(1,f'Throw-event analysis failed: {exc}\n')
 
 
