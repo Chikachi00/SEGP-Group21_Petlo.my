@@ -40,7 +40,8 @@
 
 - [ ] Are the current statistics, event playback and `uncertain` indications sufficient? What changes are required?
 - [ ] Is manual confirmation or correction of machine results required?
-- [ ] Is an online interface prototype plus a fully functioning local analysis system acceptable for this stage?
+- [ ] What is the expected deliverable by the end of this semester: a refined local version with improved algorithms, event classification and reporting for demonstration and validation, or an online version that allows the client to upload videos and test the system through the website without installing software?
+- [ ] If an online version is required this semester, can the company or university provide deployment resources and help confirm permission to upload videos for cloud processing?
 
 ## 6. Video Use, Cloud Processing and Privacy Permissions
 
