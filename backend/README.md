@@ -29,7 +29,7 @@ The frontend example sets `VITE_USE_API=true` and `VITE_API_BASE_URL=http://loca
 ## Files and persistence
 
 - `config.py`: private server environment configuration.
-- `db.py`: mappings for the existing `user_login`, `dogs`, `video` tables plus four new `analysis_*` tables. It does not change `database/petlo.sql` or use compulsory uncalibrated distance/height values.
+- `db.py`: mappings for the existing `user_login`, `dogs`, `video` tables plus four result/job `analysis_*` tables and the additive `analysis_session_preferences` table. It does not change `database/petlo.sql` or use compulsory uncalibrated distance/height values.
 - `main.py`, `schemas.py`: local HTTP routes, ownership checks, request schemas, multipart upload limits, structured errors, CORS, and Range-capable MP4 playback.
 - `jobs.py`: a single background inference executor, durable job records, atomic result saving and explicit interrupted-job failures on restart.
 - `pipeline.py`: isolated per-job inputs, safe subprocess argument lists, original CV commands, original verified evidence previews and a separate source-time H.264 browser preview.
@@ -37,7 +37,7 @@ The frontend example sets `VITE_USE_API=true` and `VITE_API_BASE_URL=http://loca
 
 Default runtime paths are ignored by Git: `backend/data/petlo.sqlite3`, `outputs/backend-storage/`, `backend/.env`, `.env.local`. Each job keeps copied input, FFmpeg packet, detector/tracker/event outputs, provenance and a `pipeline.log`. Original videos are only read. Repeated analysis produces a new job/output folder and never overwrites earlier analysis artifacts. Per-view metadata uses real fractional duration and orientation-normalized dimensions.
 
-`create_all` only creates missing tables; it does not migrate existing incompatible schemas. Run one API process with one worker. Do not use `--workers 2` or automatic reload while jobs run. A graceful Ctrl+C waits for submitted analysis tasks to finish; a killed/interrupted service marks queued/running jobs failed on next startup rather than inventing completion. This is a local executor, not a production distributed queue. Free disk capacity must cover uploads, job copies, frames and output videos.
+`create_all` only creates missing tables; it does not migrate existing incompatible schemas. Run one API process with one worker. Do not use `--workers 2` or automatic reload while jobs run. A graceful shutdown requests cancellation of active tasks, including paused tasks, then waits for owned processes to exit. The checked stop script refuses to stop active work. A forced/interrupted service marks remaining active jobs failed on next startup rather than inventing completion. This is a local executor, not a production distributed queue. Free disk capacity must cover uploads, job copies, frames and output videos.
 
 ## Using the teammate's MySQL database
 
@@ -72,3 +72,9 @@ This version rejects non-loopback clients and unlisted browser origins. It is in
 ## Local presentation tools
 
 Use `scripts/start-local-demo.ps1` from the repository root for a checked loopback-only startup, and `docs/local-demo-checklist.md` for rehearsal. `python -m backend.demo_check --sample-dir PATH` submits the complete original paired samples through the running API, saves a verification record under `outputs/demo-check-*`, and retains the report in the configured local database. This is a real analysis job, not a cached demonstration or an accuracy evaluation.
+
+## Session management and task control
+
+The real API pages support upload-time names, Rename, recoverable Delete/Trash/Restore and Pause/Resume/Stop analysis. Names and deleted_at live in a separate additive table; original identity and reports remain intact. Startup creates this missing table automatically for SQLite/MySQL. The standalone MySQL alternative is `database/migrations/20261021_session_preferences.sql` in addition to the original four-table API migration; live MySQL validation remains pending.
+
+`process_control.py` uses pinned psutil for actual owned CV/FFmpeg process suspension and cancellation. Keep one API worker and the backend running while paused. A paused task holds the worker; cancellation is terminal and requires a new attempt. This does not provide resume-after-reboot or free paused-process RAM. See docs/api-contract.md for lifecycle/endpoint details and docs/local-demo-checklist.md for UI rehearsal. Run the full backend suite to include real parent/child process pause/resume/cancel and pause-aware timeout tests.

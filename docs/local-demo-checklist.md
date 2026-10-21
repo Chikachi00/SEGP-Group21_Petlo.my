@@ -69,3 +69,15 @@ Set-Location 'D:\Nottingham\Year 2\SEGP GROUP21'
 - 页面截图：`outputs/local-demo/local-demo-report.png`。这些运行输出均被 Git 忽略，留在本机作为演示证据。
 
 现场建议先展示该真实已完成报告，再启动一个新任务展示上传与等待。不要等待 41 分钟才开始讲结果，也不要把提前运行的结果称为现场任务结果。
+
+## Session 名称、回收站与任务控制（2026-10-21）
+
+- 列表显示可读的 Session name；原 UUID 保留在内部用于关联，报告页 Technical details 可查看。上传时可填 Session name (optional)，已有记录点 Rename → Save name。最多 120 字符，允许中文名称；按钮与提示仍用英文。
+- Delete → Move to Trash 是可恢复删除。Open Trash → Restore 可恢复记录、名称、原有报告和视频。不会物理删除原文件或清理磁盘空间；回收站不提供永久清空。
+- 删除正在分析的记录会同时停止其后台任务。恢复记录不会恢复已停止的进程；需要 Start a new analysis attempt，上传的视频仍保留。
+- 在 View progress 页点 Pause analysis，等待状态变为 paused；这会暂停实际 CV/FFmpeg 子进程，而不只是停止网页轮询。Resume analysis 继续同一任务，不重复上传或从头分析。
+- pausing/cancelling 表示后台尚在确认操作；不要当成已经暂停或停止。Stop analysis → Confirm stop 会结束该次分析；之后只能创建新任务。
+- 暂停仍占用进程内存和唯一 worker，其他排队任务会等待。必须保持本地后端运行；关闭网页不影响暂停状态，但重启电脑或后端不能从原进程继续，会明确记录中断失败。阶段超时不计暂停时间，页面 Time since submission 仍包含暂停和排队时间。
+- 停止服务脚本也检查 paused/pausing/cancelling 及回收站中仍在停止的任务，避免误关未结束进程。
+
+人工验收：先改名并刷新确认保存；对一条短片测试记录删除后恢复，检查报告与回放；再上传短片并暂停，刷新同一地址确认仍 paused，继续到 completed。不要用已完成的完整双视角报告重新开始分析来测试按钮。

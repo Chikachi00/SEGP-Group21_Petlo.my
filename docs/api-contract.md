@@ -162,3 +162,23 @@ The job runner uses one local executor and records queued/running/completed/fail
 Job responses additionally include persisted `created_at` and nullable `finished_at` timestamps, in UTC ISO 8601 format. Elapsed time includes queue waiting, and freezes at `finished_at` for completed/failed jobs. A successful GET is a status-check timestamp, not an inference heartbeat. Polling/reloading does not enqueue work. The API remains loopback-only; no database migration is needed for these already persisted columns.
 
 The frontend task route `/sessions/:id/analysis` restores `current_job_id` from the session endpoint. Local report JSON includes session identity, algorithm version, limitations, candidate statistics and per-view event intervals; event CSV has one row per event/view, with `human_verified=false`. Downloads do not change machine predictions or supply human labels to inference.
+
+## Session management and process control (2026-10-21)
+
+Session responses add `name` (display label) and nullable `deleted_at`; internal `session_id` and `job_id` never change on rename. POST /sessions accepts optional `name` (1–120 trimmed characters); existing unnamed sessions receive a view-based display label.
+
+All paths below are under /api/v1 and apply the existing server-owned local user/ownership checks:
+
+| Method and path | Body / behavior |
+| --- | --- |
+| PATCH /sessions/{session_id} | `{ "name": "Thursday training — Front" }`; returns updated SessionSummary |
+| DELETE /sessions/{session_id} | Recoverable soft deletion; requests cancellation of any active analysis, retains uploads and outputs |
+| GET /sessions?trash=true | Paginated deleted records only; default listing excludes them |
+| POST /sessions/{session_id}/restore | Restores visibility, name and saved results; does not resume a cancelled job |
+| POST /jobs/{job_id}/control | `{ "action": "pause" }`, `resume` or `cancel`; returns persisted AnalysisJob |
+
+Deleted records cannot be read, analyzed, renamed or played until restored (404 SESSION_IN_TRASH). Restore/delete can address an owned deleted record. Completed, failed and cancelled jobs reject process-control changes with 409. Operations do not repeat analysis-start requests.
+
+Job/session lifecycle adds `pausing`, `paused`, `cancelling`, `cancelled`. Active = queued/running/pausing/paused/cancelling; terminal = completed/failed/cancelled. Pause acknowledgement is asynchronous: a started job reports pausing until the worker reaches a control checkpoint and suspends its owned subprocess tree. Resume preserves job identity and process; cancel terminates the owned process tree. Paused time is excluded from stage timeouts. Wall-clock elapsed display includes queueing and pauses and freezes at finished_at for terminal jobs.
+
+There is one worker. A paused job holds it, so other queued work waits. This is in-process suspension, not persistent checkpoint recovery; the backend must remain running. On shutdown controls request cancellation; a forced restart marks remaining interrupted active records failed with SERVER_RESTARTED. Deletion is not disk reclamation; no permanent-delete endpoint is provided. A new additive `analysis_session_preferences` table stores display names and deletion timestamps; legacy IDs/tables, original CV commands and result formats remain unchanged.

@@ -16,8 +16,16 @@ try {
         if (@($next.items).Count -eq 0) { throw 'Could not verify all task states.' }
         $items += @($next.items)
     }
+    $trashFirst = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/sessions?trash=true&page=1&page_size=100' -TimeoutSec 3
+    $trashItems = @($trashFirst.items)
+    for ($page = 2; $trashItems.Count -lt $trashFirst.total; $page++) {
+        $next = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/sessions?trash=true&page=$page&page_size=100" -TimeoutSec 3
+        if (@($next.items).Count -eq 0) { throw 'Could not verify all trashed task states.' }
+        $trashItems += @($next.items)
+    }
+    $items += $trashItems
 } catch { throw 'Cannot verify that analysis is idle. Check the backend and finish active tasks before stopping it.' }
-if (@($items | Where-Object { $_.status -in 'queued', 'running' }).Count -gt 0) { throw 'Analysis is still queued or running. Wait for completion before stopping services.' }
+if (@($items | Where-Object { $_.status -in 'queued', 'running', 'pausing', 'paused', 'cancelling' }).Count -gt 0) { throw 'Analysis is still queued or running. Wait for completion before stopping services.' }
 $remaining = @()
 foreach ($entry in $entries) {
     $process = Get-Process -Id $entry.process_id -ErrorAction SilentlyContinue
