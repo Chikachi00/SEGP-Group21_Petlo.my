@@ -42,6 +42,17 @@
 - [ ] Is manual confirmation or correction of machine results required?
 - [ ] Is an online interface prototype plus a fully functioning local analysis system acceptable for this stage?
 
+## 6. Video Use, Cloud Processing and Privacy Permissions
+
+- [ ] Does the restriction mean that videos must not be published publicly on GitHub, or that they must not be uploaded to any third-party platform at all?
+- [ ] May videos be uploaded to a private cloud service for temporary analysis and deleted afterwards?
+- [ ] May reports, thumbnails, screenshots or compressed previews be retained? Should access be restricted to authorized users, or is public demonstration permitted?
+- [ ] How long may each type of data be retained, who may access it, and who is responsible for deletion?
+
+**Clarification:** Cloud video analysis normally still requires transferring video or frames, even if they are not permanently stored. Thumbnails and previews can still reveal people or the scene; their use needs separate confirmation. If video must remain on the local machine, video analysis should also run locally, and only explicitly permitted report data should be sent to the cloud.
+
+Confirm these permissions with the supervisor and video provider, and record the agreed scope. Keep GitHub limited to code and documentation approved for public release.
+
 ## Meeting Notes
 
 - Confirmed decisions:
