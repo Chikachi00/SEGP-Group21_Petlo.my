@@ -1,3 +1,4 @@
+import { isTerminalJob } from "./jobLifecycle.ts";
 import { ApiError } from "../../services/apiClient.ts";
 import { getAnalysisJob } from "./api.ts";
 import type { AnalysisJob } from "./types.ts";
@@ -34,7 +35,7 @@ export async function pollAnalysisJob(jobId: string, options: {
       const job = await readJob(jobId, pollingSignal);
       pollingSignal.throwIfAborted();
       onUpdate?.(job);
-      if (job.status === "completed" || job.status === "failed") return job;
+      if (isTerminalJob(job.status)) return job;
       await wait(intervalMs, pollingSignal);
     }
   } catch (error) {

@@ -38,3 +38,27 @@
   .report-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) { .analysis-spinner { animation: none; } }
+
+/* Local session names, reversible deletion and actual process controls. */
+.analysis-badge.is-paused { background: #fff4d6; color: #785600; }
+.analysis-facts { grid-template-columns: 1fr 1fr; }
+.session-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+.session-actions button { min-height: 34px; padding: 6px 10px; }
+.session-name { min-width: 150px; max-width: 230px; white-space: normal; overflow-wrap: anywhere; font-weight: 600; }
+.session-table td:last-child { min-width: 170px; }
+.session-table .session-actions { justify-content: flex-end; }
+.session-rename, .session-confirm { width: 100%; white-space: normal; }
+.session-rename label { display: block; font-size: 13px; text-align: left; }
+.session-rename input { display: block; width: 100%; max-width: 360px; margin: 6px 0; border: 1px solid var(--line); border-radius: 6px; padding: 9px; font: inherit; }
+.session-rename button + button, .session-confirm button + button { margin-left: 8px; }
+.session-confirm { border: 1px solid #e7c4bf; border-radius: 6px; padding: 14px; background: #fff7f5; text-align: left; }
+.session-confirm p { margin: 8px 0 12px; }
+.session-danger { color: #9d302b; }
+.analysis-technical { color: var(--muted); font-size: 12px; margin: 14px 0; }
+.analysis-technical summary { cursor: pointer; }
+.analysis-technical code { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .analysis-facts { grid-template-columns: 1fr; }
+  .session-table .session-name { width: 100%; max-width: none; }
+  .session-table td:last-child { min-width: 0; }
+}

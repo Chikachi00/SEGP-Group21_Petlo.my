@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import SessionActions from "../components/SessionActions.tsx";
+import { defaultSessionName, isTerminalJob } from "../jobLifecycle.ts";
+import { Link, useNavigate, useParams } from "react-router";
 import { useSessionDetail } from "../hooks/useSessionData.ts";
 import { useAnalysisJob } from "../hooks/useAnalysisJob.ts";
 import AnalysisStatusCard from "../components/AnalysisStatusCard.tsx";
 
 export default function LiveAnalysisPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [revision, setRevision] = useState(0);
   const { value: session, error } = useSessionDetail(id, String(revision));
   const { job, error: jobError, lastCheckedAt, resume } = useAnalysisJob(session?.current_job_id ?? null, { maxWaitMs: 7_200_000 });
@@ -16,10 +19,11 @@ export default function LiveAnalysisPage() {
     {error && <div className="analysis-error" role="alert"><p>{error.message}</p><button onClick={() => setRevision(value => value + 1)}>Retry connection</button></div>}
     {!session && !error && <p role="status">Loading saved session…</p>}
     {session && <>
-      <p className="analysis-muted">Session {session.session_id} · {session.videos.map(v => v.camera_perspective === "front" ? "Front view" : "Side view").join(" + ")}</p>
+      <p className="analysis-muted">{defaultSessionName(session)} · {session.videos.map(v => v.camera_perspective === "front" ? "Front view" : "Side view").join(" + ")}</p>
+      <SessionActions session={session} onChange={() => setRevision(value => value + 1)} onDeleted={() => navigate("/")} />
       {session.current_job_id ? <AnalysisStatusCard job={job} views={session.videos.map(v => v.camera_perspective)} error={jobError} lastCheckedAt={lastCheckedAt} onResume={resume} /> : <div className="panel analysis-card"><h2>No analysis task submitted</h2><p>This saved session may contain an incomplete upload. Return to Upload video to start again.</p></div>}
       <div className="analysis-actions">
-        {(status === "completed" || status === "failed") && <Link className="button-primary" to={`/sessions/${encodeURIComponent(session.session_id)}`}>{status === "completed" ? "View report" : "Review failed attempt"}</Link>}
+        {isTerminalJob(status) && <Link className="button-primary" to={`/sessions/${encodeURIComponent(session.session_id)}`}>{status === "completed" ? "View report" : "Review stopped or failed attempt"}</Link>}
         <Link to="/">Back to video list</Link>
         <Link to="/upload">Upload another video</Link>
       </div>

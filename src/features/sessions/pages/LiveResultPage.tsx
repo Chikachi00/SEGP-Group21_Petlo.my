@@ -1,3 +1,5 @@
+import SessionActions from "../components/SessionActions.tsx";
+import { defaultSessionName, isActiveJob, isTerminalJob } from "../jobLifecycle.ts";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useAnalysisJob } from "../hooks/useAnalysisJob.ts";
@@ -13,7 +15,7 @@ export default function LiveResultPage() {
   const { value: data, error } = useSessionDetail(id, revision);
   const { job, error: pollingError, isPolling, lastCheckedAt, resume } = useAnalysisJob(data?.current_job_id ?? null);
   useEffect(() => {
-    if (job?.status === "completed" || job?.status === "failed") setRevision(`${job.job_id}:${job.status}`);
+    if (job && isTerminalJob(job.status)) setRevision(`${job.job_id}:${job.status}`);
   }, [job?.job_id, job?.status]);
   const [selectedVideo, setSelectedVideo] = useState("");
   const [actionError, setActionError] = useState("");
@@ -23,7 +25,7 @@ export default function LiveResultPage() {
   const video = useRef<HTMLVideoElement>(null);
   const playback = data?.videos.find(v => v.video_id === selectedVideo) ?? data?.videos[0];
   const status = job?.status ?? data?.status;
-  const active = status === "queued" || status === "running";
+  const active = isActiveJob(status);
   const reportReady = data?.status === "completed" && status === "completed" && data.current_job_id === job?.job_id;
   async function retry() {
     if (!data || starting || retryController.current || isPolling || active || pollingError) return;
@@ -37,14 +39,16 @@ export default function LiveResultPage() {
     finally { if (!abort.signal.aborted) setStarting(false); if (retryController.current === abort) retryController.current = null; }
   }
   const rate = (value: number | null | undefined) => value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
-  return <section className="page"><header className="page-header"><div><h1>Analysis report</h1><p>Session {id} · Machine event candidates for manual review</p></div><Link to="/">Video Management</Link></header>
+  return <section className="page"><header className="page-header"><div><h1>Analysis report</h1><p>{data ? defaultSessionName(data) : "Saved session"} · Machine event candidates for manual review</p></div><Link to="/">Video Management</Link></header>
     {error && <div className="analysis-error" role="alert"><p>{error.message}</p><button onClick={() => setRevision(String(Date.now()))}>Retry connection</button></div>}
     {!data && !error && <p role="status">Loading session…</p>}
     {actionError && <p className="analysis-error" role="alert">{actionError}</p>}
     {data && <>
-      {(active || pollingError || status === "failed") && <AnalysisStatusCard job={job} views={data.videos.map(v => v.camera_perspective)} error={pollingError} lastCheckedAt={lastCheckedAt} onResume={resume} />}
+      <SessionActions session={data} onChange={() => setRevision(String(Date.now()))} onDeleted={() => navigate("/")} />
+      <details className="analysis-technical"><summary>Technical details</summary><p>Internal session ID: <code>{id}</code></p></details>
+      {(active || pollingError || status === "failed" || status === "cancelled") && <AnalysisStatusCard job={job} views={data.videos.map(v => v.camera_perspective)} error={pollingError} lastCheckedAt={lastCheckedAt} onResume={resume} />}
       {active && <div className="analysis-actions"><Link className="button-primary" to={`/sessions/${encodeURIComponent(data.session_id)}/analysis`}>Open analysis status</Link></div>}
-      {status === "failed" && <div className="analysis-actions"><button type="button" disabled={starting || isPolling || Boolean(pollingError)} onClick={() => void retry()}>Start a new analysis attempt</button></div>}
+      {(status === "failed" || status === "cancelled") && <div className="analysis-actions"><button type="button" disabled={starting || isPolling || Boolean(pollingError)} onClick={() => void retry()}>Start a new analysis attempt</button></div>}
       {!data.current_job_id && <p>No analysis was submitted for this session. Return to Upload video to start a complete submission.</p>}
       {reportReady && data.statistics && <>
         <div className="report-metrics">{[

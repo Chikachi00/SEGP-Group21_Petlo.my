@@ -16,6 +16,7 @@ export default function LiveUploadPage() {
   const [health, setHealth] = useState<Health | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [connecting, setConnecting] = useState(true);
+  const [sessionName, setSessionName] = useState("");
   const [dogId, setDogId] = useState("");
   const [mode, setMode] = useState<"single_view" | "sample_pair">("single_view");
   const [perspective, setPerspective] = useState<CameraPerspective>("front");
@@ -61,7 +62,7 @@ export default function LiveUploadPage() {
     setUploading(true); setError(""); setSessionId(null);
     try {
       setStage("Creating saved session…");
-      const session = await createSession({ dog_id: dogId }, abort.signal);
+      const session = await createSession({ dog_id: dogId, name: sessionName.trim() || undefined }, abort.signal);
       abort.signal.throwIfAborted(); setSessionId(session.session_id);
       const ids: string[] = [];
       for (const input of selections) {
@@ -87,6 +88,7 @@ export default function LiveUploadPage() {
       {!health && !connecting && <button onClick={() => setLoadAttempt(value => value + 1)}>Retry backend connection</button>}
       <fieldset disabled={busy || !health} style={{ border: 0 }}>
         <legend className="sr-only">Video analysis settings</legend>
+        <p><label>Session name (optional)<input maxLength={120} value={sessionName} placeholder="e.g. Wednesday training — Front view" onChange={event => setSessionName(event.target.value)} /></label></p>
         <p><label>Dog <select value={dogId} onChange={e => setDogId(e.target.value)}>{dogs.map(d => <option key={d.dog_id} value={d.dog_id}>{d.name} · {d.breed}</option>)}</select></label></p>
         <p><label>Analysis mode <select value={mode} onChange={e => setMode(e.target.value as typeof mode)}><option value="single_view">Single fixed view</option><option value="sample_pair">Matching supplied sample pair</option></select></label></p>
         {mode === "single_view" ? <>

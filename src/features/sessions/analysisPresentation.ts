@@ -1,3 +1,4 @@
+import { isTerminalJob } from "./jobLifecycle.ts";
 import type { AnalysisJob } from "./types.ts";
 
 const operations = [
@@ -29,7 +30,7 @@ export function stageLabel(stage: string | null | undefined): string {
 export function elapsedSeconds(job: Pick<AnalysisJob, "created_at" | "finished_at" | "status"> | null, nowMs: number): number | null {
   if (!job?.created_at) return null;
   const start = Date.parse(job.created_at);
-  const terminal = job.status === "completed" || job.status === "failed";
+  const terminal = isTerminalJob(job.status);
   if (terminal && !job.finished_at) return null;
   const end = terminal ? Date.parse(job.finished_at!) : nowMs;
   return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, Math.floor((end - start) / 1000)) : null;

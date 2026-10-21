@@ -1,3 +1,4 @@
+import { isActiveJob, isTerminalJob } from "./jobLifecycle.ts";
 import { ApiError, apiClient } from "../../services/apiClient.ts";
 import type { AnalysisJob, CreateSessionRequest, SessionDetail, SessionList, SessionSummary, StartAnalysisRequest } from "./types.ts";
 
@@ -11,12 +12,12 @@ export function createSession(input: CreateSessionRequest, signal?: AbortSignal)
   return apiClient.request("POST", "/sessions", { json: input, signal });
 }
 
-export function listSessions(options: { page?: number; pageSize?: number; signal?: AbortSignal } = {}): Promise<SessionList> {
-  const { page = 1, pageSize = 20, signal } = options;
+export function listSessions(options: { page?: number; pageSize?: number; trash?: boolean; signal?: AbortSignal } = {}): Promise<SessionList> {
+  const { page = 1, pageSize = 20, trash = false, signal } = options;
   if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
     throw new Error("Use page >= 1 and pageSize from 1 to 100.");
   }
-  return apiClient.request("GET", `/sessions?page=${page}&page_size=${pageSize}`, { signal });
+  return apiClient.request("GET", `/sessions?page=${page}&page_size=${pageSize}${trash ? "&trash=true" : ""}`, { signal });
 }
 
 export function getSession(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {
@@ -34,9 +35,26 @@ export function startAnalysis(sessionId: string, input: StartAnalysisRequest, si
 
 export async function getAnalysisJob(jobId: string, signal?: AbortSignal): Promise<AnalysisJob> {
   const job = await apiClient.request<AnalysisJob>("GET", `/jobs/${id(jobId)}`, { signal });
-  if (!job || job.job_id !== jobId || !["queued", "running", "completed", "failed"].includes(job.status) ||
+  if (!job || job.job_id !== jobId || (!isActiveJob(job.status) && !isTerminalJob(job.status)) ||
       (job.progress_percent !== null && (!Number.isFinite(job.progress_percent) || job.progress_percent < 0 || job.progress_percent > 100))) {
     throw new ApiError("Server returned an invalid analysis job.", 200, "INVALID_RESPONSE");
   }
   return job;
+}
+
+export function renameSession(sessionId: string, name: string, signal?: AbortSignal): Promise<SessionSummary> {
+  if (!name.trim() || name.trim().length > 120) throw new Error("Use a session name of 1–120 characters.");
+  return apiClient.request("PATCH", `/sessions/${id(sessionId)}`, { json: { name: name.trim() }, signal });
+}
+
+export function trashSession(sessionId: string, signal?: AbortSignal): Promise<SessionSummary> {
+  return apiClient.request("DELETE", `/sessions/${id(sessionId)}`, { signal });
+}
+
+export function restoreSession(sessionId: string, signal?: AbortSignal): Promise<SessionSummary> {
+  return apiClient.request("POST", `/sessions/${id(sessionId)}/restore`, { signal });
+}
+
+export function controlAnalysisJob(jobId: string, action: "pause" | "resume" | "cancel", signal?: AbortSignal): Promise<AnalysisJob> {
+  return apiClient.request("POST", `/jobs/${id(jobId)}/control`, { json: { action }, signal });
 }

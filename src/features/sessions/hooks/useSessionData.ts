@@ -1,8 +1,9 @@
+import { isActiveJob } from "../jobLifecycle.ts";
 import { useEffect, useState } from "react";
 import { getSession, listSessions } from "../api.ts";
 import type { SessionDetail, SessionSummary } from "../types.ts";
 
-export function useSessionHistory() {
+export function useSessionHistory({ trash = false }: { trash?: boolean } = {}) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
@@ -15,19 +16,19 @@ export function useSessionHistory() {
     void (async () => {
       const items: SessionSummary[] = [];
       for (let page = 1; ; page++) {
-        const result = await listSessions({ page, pageSize: 100, signal: controller.signal });
+        const result = await listSessions({ page, pageSize: 100, trash, signal: controller.signal });
         items.push(...result.items);
         if (items.length >= result.total) break;
         if (result.items.length === 0) throw new Error("Incomplete session history returned by server.");
       }
       if (!controller.signal.aborted) {
         setSessions(items);
-        if (items.some(session => session.status === "queued" || session.status === "running")) timer = setTimeout(() => setRevision(value => value + 1), 5000);
+        if (items.some(session => isActiveJob(session.status))) timer = setTimeout(() => setRevision(value => value + 1), 5000);
       }
     })().catch(error => { if (!controller.signal.aborted) setError(error); })
       .finally(() => { if (!controller.signal.aborted) { setLoading(false); setRefreshing(false); } });
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [revision]);
+  }, [revision, trash]);
   return { sessions, error, loading, refreshing, refresh: () => setRevision(value => value + 1) };
 }
 

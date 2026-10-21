@@ -1,6 +1,6 @@
 import type { SessionVideo } from "../videos/types.ts";
 
-export type JobStatus = "queued" | "running" | "completed" | "failed";
+export type JobStatus = "queued" | "running" | "pausing" | "paused" | "cancelling" | "completed" | "failed" | "cancelled";
 export type SessionStatus = "draft" | "ready" | JobStatus;
 export type CandidateCategory = "in_air_catch_candidate" | "ground_pickup_candidate" | "miss_candidate" | "uncertain";
 
@@ -18,6 +18,8 @@ export interface CandidateStatistics {
 }
 
 export interface SessionSummary {
+  name?: string;
+  deleted_at?: string | null;
   session_id: string;
   date: string;
   dog_id: string;
@@ -52,6 +54,7 @@ export interface SessionList {
 }
 
 export interface CreateSessionRequest {
+  name?: string;
   dog_id: string;
   recorded_at?: string;
 }
