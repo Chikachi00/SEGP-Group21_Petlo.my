@@ -2,11 +2,12 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "rec
 import { useSessionHistory } from "../hooks/useSessionData.ts";
 
 export default function LiveHistoryPage() {
-  const { sessions, error, loading } = useSessionHistory();
+  const { sessions, error, loading, refresh } = useSessionHistory();
   const completed = sessions.filter(s => s.status === "completed").reverse();
   const data = completed.map(session => ({ date: new Date(session.date).toLocaleString(),
     ratio: session.statistics?.in_air_catch_candidate_rate == null ? null : session.statistics.in_air_catch_candidate_rate * 100 }));
   return <section className="page"><header className="page-header"><div><h1>Historical Trend</h1><p>Air-catch candidate rate across completed sessions; uncertain events are excluded from its denominator.</p></div></header>
+    <button type="button" disabled={loading} onClick={refresh}>Refresh history</button>
     {loading && <p role="status">Loading history…</p>}
     {error && <p role="alert">{error.message}</p>}
     {!loading && !error && completed.length === 0 && <p>No completed analyses yet.</p>}

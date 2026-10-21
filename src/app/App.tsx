@@ -12,6 +12,8 @@ const LiveVideoListPage = lazy(() => import("../features/sessions/pages/LiveVide
 const LiveResultPage = lazy(() => import("../features/sessions/pages/LiveResultPage"));
 const LiveHistoryPage = lazy(() => import("../features/sessions/pages/LiveHistoryPage"));
 
+const LiveAnalysisPage = lazy(() => import("../features/sessions/pages/LiveAnalysisPage"));
+
 export default function App() {
   return (
     <>
@@ -22,6 +24,7 @@ export default function App() {
           <Route path="/" element={useApiMode ? <LiveVideoListPage /> : <VideoListPage />} />
           <Route path="/upload" element={useApiMode ? <LiveUploadPage /> : <UploadPage />} />
           <Route path="/sessions/:id" element={useApiMode ? <LiveResultPage /> : <ResultPage />} />
+          <Route path="/sessions/:id/analysis" element={useApiMode ? <LiveAnalysisPage /> : <ResultPage />} />
           <Route path="/history" element={useApiMode ? <LiveHistoryPage /> : <HistoryPage />} />
         </Routes>
         </Suspense>

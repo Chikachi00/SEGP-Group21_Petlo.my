@@ -67,5 +67,7 @@ export interface AnalysisJob {
   status: JobStatus;
   progress_percent: number | null;
   stage: string | null;
+  created_at?: string;
+  finished_at?: string | null;
   error: { code: string; message: string } | null;
 }
