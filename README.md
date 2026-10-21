@@ -1,5 +1,11 @@
 # Disc Dog Analytics
 
+[中文](README.zh-CN.md) | [English](README.md)
+
+[Live Demo](https://petlo-tracking.pages.dev/) · [Development Log](docs/development-log.md)
+
+> The online demo currently shows the interface prototype and sample data. Use the local version below for real video analysis and completed reports.
+
 **Project title:** Robust Detection and Event Recognition for Fast Small-Object Sports Analytics: A Disc Dog Case Study
 
 **Client:** petlo.my
