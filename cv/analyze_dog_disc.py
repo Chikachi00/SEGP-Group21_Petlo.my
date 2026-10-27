@@ -45,7 +45,7 @@ def checked_run(root):
     return summary,read_rows(root/'states.jsonl')
 
 
-def run(dog_dir,disc_dir,pack,output_dir,settings=None,preview=None):
+def run(dog_dir,disc_dir,pack,output_dir,settings=None,preview=None,*,review=True):
     started=time.perf_counter()
     dog_dir,disc_dir,pack,output=map(lambda p:Path(p).resolve(),(dog_dir,disc_dir,pack,output_dir))
     cfg=settings or JointSettings()
@@ -58,7 +58,7 @@ def run(dog_dir,disc_dir,pack,output_dir,settings=None,preview=None):
     source=Path(video['source']).resolve()
     index=(pack/video['paths']['frame_index']).resolve()
     if not index.is_relative_to(pack): raise ValueError('Unsafe frame index path')
-    preview=Path(preview).resolve() if preview else None
+    preview=Path(preview).resolve() if preview and review else None
     protected=[dog_dir,disc_dir,pack,source.parent,PROJECT/'sources',PROJECT/'cv',PROJECT/'tests',PROJECT/'docs']
     if any(output.is_relative_to(p) or p.is_relative_to(output) for p in protected):
         raise ValueError('Use an independent output directory outside existing inputs/code/docs/raw video')
@@ -77,6 +77,7 @@ def run(dog_dir,disc_dir,pack,output_dir,settings=None,preview=None):
     if preview: inputs.append(preview)
     input_hashes={str(p):sha256(p) for p in inputs}
     signature={'schema_version':1,'source_sha256':digest,'video_id':video['id'],'camera':video['camera'],
+               'review':review,
                'settings':asdict(cfg),'display_size':[video['width'],video['height']],'inputs':input_hashes,
                'code':{n:sha256(Path(__file__).with_name(n)) for n in ('joint_analysis.py','analyze_dog_disc.py')}}
     key=hashlib.sha256(json.dumps(signature,sort_keys=True).encode()).hexdigest()
@@ -84,7 +85,9 @@ def run(dog_dir,disc_dir,pack,output_dir,settings=None,preview=None):
         summary=read_json(output/'summary.json')
         if summary.get('status')!='complete' or summary.get('cache_key')!=key: raise ValueError('Existing output differs; choose a new output directory')
         artifacts=summary.get('artifact_sha256',{})
-        if not {'joint-states.jsonl','events.json','manual-review-template.json','index.html'}.issubset(artifacts): raise ValueError('Invalid output cache manifest')
+        required={'joint-states.jsonl','events.json'}
+        if review: required.update(('manual-review-template.json','index.html'))
+        if not required.issubset(artifacts): raise ValueError('Invalid output cache manifest')
         for name,value in artifacts.items():
             target=(output/name).resolve()
             if not target.is_relative_to(output) or sha256(target)!=value: raise ValueError('Output cache changed; choose a new directory')
@@ -97,10 +100,11 @@ def run(dog_dir,disc_dir,pack,output_dir,settings=None,preview=None):
     try:
         (temp/'joint-states.jsonl').write_text(''.join(json.dumps(f,allow_nan=False)+'\n' for f in frames),encoding='utf-8')
         write_json(temp/'events.json',{'video_id':video['id'],'candidate_events':events,'confirmed_results_available':False})
-        write_json(temp/'manual-review-template.json',{'video_id':video['id'],'instructions':'Copy this file before editing. These records are manual review only; no statistics are inferred or imported automatically.',
-            'reviews':[{'event_id':e['event_id'],'review_status':'unreviewed','confirmed_throw':None,'outcome':'uncertain',
-                        'allowed_outcomes':['catch','miss','uncertain','false_candidate'],'reviewer':None,'evidence_frames':[],'notes':''} for e in events]})
-        (temp/'index.html').write_text(review_page(video,frames,events,preview,output),encoding='utf-8')
+        if review:
+            write_json(temp/'manual-review-template.json',{'video_id':video['id'],'instructions':'Copy this file before editing. These records are manual review only; no statistics are inferred or imported automatically.',
+                'reviews':[{'event_id':e['event_id'],'review_status':'unreviewed','confirmed_throw':None,'outcome':'uncertain',
+                            'allowed_outcomes':['catch','miss','uncertain','false_candidate'],'reviewer':None,'evidence_frames':[],'notes':''} for e in events]})
+            (temp/'index.html').write_text(review_page(video,frames,events,preview,output),encoding='utf-8')
         if any(sha256(p)!=v for p,v in input_hashes.items()) or sha256(source)!=digest:
             raise ValueError('Input changed during joint analysis')
         summary={'status':'complete','video_id':video['id'],'cache_key':key,'provenance':signature,'metrics':metrics,
@@ -159,8 +163,9 @@ def main():
     parser.add_argument('--pack',default=PROJECT/'outputs'/'video-analysis-pack',type=Path)
     parser.add_argument('--output-dir',required=True,type=Path)
     parser.add_argument('--preview',type=Path)
+    parser.add_argument('--no-review',action='store_true',help='Write analysis data without offline HTML or manual review files.')
     args=parser.parse_args()
-    try: run(args.dog_dir,args.disc_dir,args.pack,args.output_dir,preview=args.preview)
+    try: run(args.dog_dir,args.disc_dir,args.pack,args.output_dir,preview=args.preview,review=not args.no_review)
     except (ValueError,OSError,RuntimeError,KeyError,StopIteration) as exc: parser.exit(1,f'Joint analysis failed: {exc}\n')
 
 

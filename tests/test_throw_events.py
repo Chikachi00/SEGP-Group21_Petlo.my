@@ -304,5 +304,21 @@ class EventV3EvidenceTests(unittest.TestCase):
         self.assertTrue(events)
         self.assertTrue(all(e['predicted_outcome']=='uncertain' for e in events))
 
+    def test_ledger_uses_source_frame_offset_when_pickup_extends_episode(self):
+        frames,detections=fixture(missing=range(21,75))
+        for index,(row,detection) in enumerate(zip(frames,detections)):
+            row['dog']['bbox']=[650.,100.,720.,210.] if index<23 else [385.,330.,455.,440.]
+            if row['discs'][0]['bbox'] is not None:
+                row['discs'][0]['bbox'][1:4:2]=[150+index*.04*300,160+index*.04*300]
+            row['frame_id']+=100
+            detection['frame_id']+=100
+        events,ledger,_=analyze_v3(frames,detections,1000,600)
+        event=events[0]
+        self.assertEqual(event['predicted_outcome'],'ground_pickup_candidate')
+        self.assertEqual([r['frame_id'] for r in ledger],list(range(100,175)))
+        arrival=next(r for r in ledger if r['frame_id']==event['pickup_evidence']['dog_arrival_frame'])
+        self.assertIn({'throw_id':event['throw_id'],'phase':'ground_pickup_candidate','disc_observed':False,
+                       'dog_observed':True,'predicted_outcome':'ground_pickup_candidate'},arrival['events'])
+
 
 if __name__=='__main__':unittest.main()

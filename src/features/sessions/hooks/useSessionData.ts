@@ -1,6 +1,8 @@
 import { isActiveJob } from "../jobLifecycle.ts";
 import { useEffect, useState } from "react";
-import { getSession, listSessions } from "../api.ts";
+import { getSession } from "../api.ts";
+import { loadSessionHistory } from "../sessionHistory.ts";
+import { waitUntilVisible } from "../../../services/browserVisibility.ts";
 import type { SessionDetail, SessionSummary } from "../types.ts";
 
 export function useSessionHistory({ trash = false }: { trash?: boolean } = {}) {
@@ -14,13 +16,8 @@ export function useSessionHistory({ trash = false }: { trash?: boolean } = {}) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     setError(null); setRefreshing(true);
     void (async () => {
-      const items: SessionSummary[] = [];
-      for (let page = 1; ; page++) {
-        const result = await listSessions({ page, pageSize: 100, trash, signal: controller.signal });
-        items.push(...result.items);
-        if (items.length >= result.total) break;
-        if (result.items.length === 0) throw new Error("Incomplete session history returned by server.");
-      }
+      await waitUntilVisible(controller.signal);
+      const items = await loadSessionHistory({ trash, signal: controller.signal });
       if (!controller.signal.aborted) {
         setSessions(items);
         if (items.some(session => isActiveJob(session.status))) timer = setTimeout(() => setRevision(value => value + 1), 5000);

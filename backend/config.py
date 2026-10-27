@@ -18,10 +18,15 @@ class Settings:
     stage_timeout: int = field(default_factory=lambda: int(os.getenv('PETLO_STAGE_TIMEOUT_SEC', '7200')))
     model: Path = field(default_factory=lambda: Path(os.getenv('PETLO_MODEL_PATH', str(ROOT / 'yolo11n.pt'))).resolve())
     ffmpeg_dir: str | None = field(default_factory=lambda: os.getenv('PETLO_FFMPEG_DIR') or None)
+    device: str = field(default_factory=lambda: os.getenv('PETLO_DEVICE', 'auto'))
+    cpu_threads: int = field(default_factory=lambda: int(os.getenv('PETLO_CPU_THREADS', '8')))
+    tile_batch_size: int = field(default_factory=lambda: int(os.getenv('PETLO_TILE_BATCH_SIZE', '4')))
 
     def validate(self):
-        if self.max_upload_bytes <= 0 or self.stage_timeout <= 0:
+        if self.max_upload_bytes <= 0 or self.stage_timeout <= 0 or self.cpu_threads <= 0 or self.tile_batch_size <= 0:
             raise ValueError('Upload and timeout limits must be positive')
+        if self.device != 'auto' and self.device != 'cpu' and not self.device.isdecimal():
+            raise ValueError('PETLO_DEVICE must be auto, cpu or a CUDA device index')
         protected = [ROOT / name for name in ('cv', 'sources', 'src', 'database', 'docs', 'tests', 'backend', '.git', '.venv')]
         if ROOT.is_relative_to(self.storage) or any(self.storage.is_relative_to(path) for path in protected):
             raise ValueError('Storage must be outside algorithm and reference directories')

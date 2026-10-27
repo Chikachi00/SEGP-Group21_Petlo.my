@@ -5,6 +5,7 @@ import { reportCsv, reportJson } from "../../src/features/sessions/reportExport.
 
 test("stage order follows the real paired pipeline and single-side mode excludes front/fusion", () => {
   const pair = analysisSteps(["side", "front"]).map(step => step.id);
+  assert.ok(!pair.includes("evidence_previews"));
   assert.ok(pair.indexOf("front:events") < pair.indexOf("side:preview"));
   assert.ok(pair.indexOf("side:events") < pair.indexOf("fusion"));
   assert.ok(pair.indexOf("fusion") < pair.indexOf("statistics"));

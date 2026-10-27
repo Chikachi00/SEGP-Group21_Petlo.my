@@ -35,8 +35,18 @@ class JobManager:
     def enqueue(self, job_id):
         with self.lock:
             control = ProcessControl(lambda status: self.publish(job_id, status))
+            future = self.executor.submit(self.execute, job_id, control)
             self.controls[job_id] = control
-            self.futures[job_id] = self.executor.submit(self.execute, job_id, control)
+            self.futures[job_id] = future
+            future.add_done_callback(lambda completed: self._forget(job_id, completed))
+
+    def _forget(self, job_id, future):
+        # Durable job state lives in the database. Retain controls only while work
+        # is active, otherwise every analysis keeps a Future and its callback graph.
+        with self.lock:
+            if self.futures.get(job_id) is future:
+                self.futures.pop(job_id)
+                self.controls.pop(job_id, None)
 
     def request(self, job_id, action):
         with self.lock:

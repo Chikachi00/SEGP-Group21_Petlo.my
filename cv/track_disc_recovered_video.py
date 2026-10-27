@@ -79,10 +79,12 @@ def missing_windows(records, states):
     return sorted(windows, key=lambda v: v['frames'], reverse=True)
 
 
-def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., end=None, recovery=None, model_path=None):
+def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., end=None, recovery=None, model_path=None, *, render=True, model=None, device='cpu'):
     started = time.perf_counter()
     settings = settings or DiscSettings()
     recovery = recovery or RecoverySettings()
+    if model is not None and model_path is None:
+        raise ValueError("Shared recovery model requires its local model_path for provenance")
     model_path = Path(model_path).resolve() if model_path is not None else None
     if model_path is not None and not model_path.is_file():
         raise ValueError("Local weights required; no model download is performed")
@@ -101,7 +103,7 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
     records, detector_rows = map(list,zip(*selected))
     tools = Toolchain.discover(ffmpeg_dir)
     code_names = ['disc_recovery.py','disc_tracker.py','track_disc_recovered_video.py','track_dog_video.py','dog_tracker.py','detect_disc_video.py','detect_video.py','video_tools/media.py','video_tools/review.py']
-    signature = {'version': VERSION, 'source_sha256': video['source_sha256'], 'detections_sha256': sha256(detections),
+    signature = {'version': VERSION, 'render_review': render, 'device': device, 'source_sha256': video['source_sha256'], 'detections_sha256': sha256(detections),
                  'detector_report_sha256': sha256(detections.with_suffix('.json')), 'settings': asdict(settings), 'recovery_settings':asdict(recovery),
                  'model_sha256':sha256(model_path) if model_path else None,
                  'source_metadata': video['metadata'], 'display_size': [video['width'],video['height']],
@@ -114,7 +116,9 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
         if summary.get('status') != 'complete' or summary.get('cache_key') != key:
             raise ValueError('Output already exists with different input/settings; choose a new directory')
         artifacts = summary.get('artifact_sha256')
-        if not isinstance(artifacts,dict) or not {'tracks.jsonl','states.jsonl','trajectory.csv','tracked.mp4'}.issubset(artifacts):
+        required = {'tracks.jsonl','states.jsonl','trajectory.csv'}
+        if render:required.add('tracked.mp4')
+        if not isinstance(artifacts,dict) or not required.issubset(artifacts):
             raise ValueError('Invalid cached output manifest')
         for name,digest in artifacts.items():
             target = (output/name).resolve()
@@ -127,27 +131,29 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
     temp.mkdir()
     writer = None
     try:
-        model = names = None
+        names = None
         if model_path:
-            import torch
-            torch.set_num_threads(4)
-            model = load_detection_model(str(model_path))
+            if model is None:
+                import torch
+                torch.set_num_threads(4)
+                model = load_detection_model(str(model_path))
             names = model_class_names(model)
             if not any(n.lower()=='frisbee' for n in names.values()):
                 raise ValueError('Local model has no frisbee class')
-        tracker = RecoveryTracker(video['width'],video['height'],settings,recovery,model,names)
+        tracker = RecoveryTracker(video['width'],video['height'],settings,recovery,model,names,device=device)
         states, tracks = [], []
         compute_seconds = 0.
-        fps = video['metadata']['avg_frame_rate']
-        if not fps or not math.isfinite(fps) or fps <= 0:
-            raise ValueError('Positive nominal replay FPS required')
-        writer = cv2.VideoWriter(str(temp/'tracked.mp4'),cv2.VideoWriter_fourcc(*'mp4v'),fps,(video['width'],video['height']))
-        if not writer.isOpened():
-            raise RuntimeError('Cannot open recovered disc replay writer')
+        if render:
+            fps = video['metadata']['avg_frame_rate']
+            if not fps or not math.isfinite(fps) or fps <= 0:
+                raise ValueError('Positive nominal replay FPS required')
+            writer = cv2.VideoWriter(str(temp/'tracked.mp4'),cv2.VideoWriter_fourcc(*'mp4v'),fps,(video['width'],video['height']))
+            if not writer.isOpened():
+                raise RuntimeError('Cannot open recovered disc replay writer')
         decoded,trail = 0,deque()
         still_ids = {0,len(records)//2,len(records)-1}
         seen_sources = set()
-        for i,(record,frame) in enumerate(iter_source_frames(source,records,video['metadata'],tools)):
+        for i,(record,frame) in enumerate(iter_source_frames(source,records,video['metadata'],tools,mutable=render)):
             if record != records[i]:
                 raise ValueError('Recovery image/index identity mismatch')
             compute_started = time.perf_counter()
@@ -155,17 +161,20 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
             compute_seconds += time.perf_counter()-compute_started
             states.append({**record,**state})
             tracks.extend(contract_rows(video['id'],record,state))
-            new_sources = {t.get('measurement_source') for t in state['tracks']} - seen_sources
-            seen_sources.update(new_sources)
-            writer.write(annotate(frame,record,states[i],trail))
-            if i in still_ids or 'local_visual' in new_sources or 'local_yolo' in new_sources:
-                if not cv2.imwrite(str(temp/f"frame-{record['frame_id']:06d}.jpg"),frame):
-                    raise RuntimeError('Cannot save recovery audit still')
+            if render:
+                new_sources = {t.get('measurement_source') for t in state['tracks']} - seen_sources
+                seen_sources.update(new_sources)
+                writer.write(annotate(frame,record,states[i],trail))
+                if i in still_ids or 'local_visual' in new_sources or 'local_yolo' in new_sources:
+                    if not cv2.imwrite(str(temp/f"frame-{record['frame_id']:06d}.jpg"),frame):
+                        raise RuntimeError('Cannot save recovery audit still')
             decoded += 1
             if decoded % 300 == 0:
-                print(f"{video['id']}: recovered/rendered {decoded}/{len(records)} source frames",flush=True)
-        writer.release()
-        writer = None
+                action = 'recovered/rendered' if render else 'recovered'
+                print(f"{video['id']}: {action} {decoded}/{len(records)} source frames",flush=True)
+        if writer is not None:
+            writer.release()
+            writer = None
         validate_results(tracks,read_json(pack/'manifest.json'),{video['id']:read_json(pack/video['paths']['frame_index'])})
         for name,rows in (('tracks.jsonl',tracks),('states.jsonl',states)):
             (temp/name).write_text(''.join(json.dumps(r,allow_nan=False)+'\n' for r in rows),encoding='utf-8')
@@ -178,10 +187,13 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
                     csv_writer.writerow([video['id'],row['frame_id'],row['t_sec'],row['pts_sec'],t['track_id'],t['state'],
                         *(center(t['bbox']) if t['bbox'] else ['','']), *(center(t['prediction_bbox']) if t['prediction_bbox'] else ['','']),
                         t['confidence'] if t['confidence'] is not None else '',t.get('measurement_source') or ''])
-        probe = subprocess.run([tools.ffprobe,'-v','error','-count_frames','-select_streams','v:0','-show_entries','stream=width,height,nb_read_frames','-of','json',str(temp/'tracked.mp4')],capture_output=True,check=True)
-        stream = json.loads(probe.stdout)['streams'][0]
-        if decoded != len(records) or int(stream['nb_read_frames']) != decoded or (stream['width'],stream['height']) != (video['width'],video['height']):
-            raise RuntimeError('Replay frame count or dimensions mismatch')
+        if decoded != len(records):
+            raise RuntimeError('Recovery source frame count mismatch')
+        if render:
+            probe = subprocess.run([tools.ffprobe,'-v','error','-count_frames','-select_streams','v:0','-show_entries','stream=width,height,nb_read_frames','-of','json',str(temp/'tracked.mp4')],capture_output=True,check=True)
+            stream = json.loads(probe.stdout)['streams'][0]
+            if decoded != len(records) or int(stream['nb_read_frames']) != decoded or (stream['width'],stream['height']) != (video['width'],video['height']):
+                raise RuntimeError('Replay frame count or dimensions mismatch')
         if sha256(source) != signature['source_sha256'] or sha256(detections) != signature['detections_sha256'] or sha256(detections.with_suffix('.json')) != signature['detector_report_sha256'] or sha256(pack/video['paths']['frame_index']) != signature['frame_index_sha256']:
             raise ValueError('Source or detector input changed during tracking')
         if model_path and sha256(model_path)!=signature['model_sha256']:
@@ -209,7 +221,7 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
                    'capacity_rejections':sum(r['capacity_rejections'] for r in states),
                    'rejection_reasons':dict(Counter(t['reason'] for r in states for t in r['tracks'] if t['reason'])),
                    'missing_windows':missing_windows(records,states),'tracking_compute_seconds':compute_seconds,'processing_seconds':time.perf_counter()-started,
-                   'validated':{'source_content_unchanged':True,'source_timestamp_index':True,'review_contract':True,'output_frame_count':decoded},
+                   'validated':{'source_content_unchanged':True,'source_timestamp_index':True,'review_contract':True,'output_frame_count':decoded if render else None},
                    'limitations':['VISUAL = local colour-component observation, with null confidence; not a YOLO detection or pure prediction.',
                                   'Visual recovery is bounded since the last model anchor and requires a unique local component, motion and contrast.',
                                   'Local geometric disc tracklets; no appearance re-identification or camera-motion compensation.',
@@ -246,7 +258,9 @@ def main():
     parser.add_argument('--prediction-seconds',type=float,default=.12)
     parser.add_argument('--identity-gap-seconds',type=float,default=.35)
     parser.add_argument('--ffmpeg-dir',type=Path)
+    parser.add_argument('--no-review',action='store_true',help='Write recovery data without annotated replay and audit images')
     parser.add_argument('--model',type=Path,default=PROJECT/'yolo11n.pt')
+    parser.add_argument('--device',default='cpu',help='Inference device for local recovery, for example cpu or 0')
     parser.add_argument('--no-roi-model',action='store_true')
     parser.add_argument('--max-visual-seconds',type=float,default=.8)
     args = parser.parse_args()
@@ -254,7 +268,7 @@ def main():
         settings = DiscSettings(confidence=args.confidence,confirm_samples=args.confirm_samples,
                                 prediction_sec=args.prediction_seconds,identity_gap_sec=args.identity_gap_seconds)
         run(args.detections,args.pack,args.output_dir,settings,args.ffmpeg_dir,args.start,args.end,
-            RecoverySettings(max_visual_sec=args.max_visual_seconds),None if args.no_roi_model else args.model)
+            RecoverySettings(max_visual_sec=args.max_visual_seconds),None if args.no_roi_model else args.model,render=not args.no_review,device=args.device)
     except (ValueError,OSError,RuntimeError,KeyError,subprocess.SubprocessError) as exc:
         parser.exit(1,f'Disc tracking failed: {exc}\n')
 

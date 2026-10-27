@@ -23,28 +23,34 @@ def _relative_carry(sequence, contact, cfg):
     after=[p for p in sequence if contact[0]['t_sec']<=p['t_sec']<=contact[0]['t_sec']+cfg.post_contact_sec]
     for group in groups(after,lambda p:p['dog_id']==contact[0]['dog_id'] and p['dog_bbox'] is not None and p['dog_gap'] is not None and p['dog_gap']<=cfg.near_dog_diagonals,cfg.observation_gap_sec,True):
         anchors=[p for p in group if p['measurement_source'] in ('saved_detector','local_yolo')]
+        relative=[]
+        for p in anchors:
+            b,db=p['bbox'],p['dog_bbox'];w=db[2]-db[0];h=db[3]-db[1]
+            if w<=0 or h<=0:relative.append(None)
+            else:relative.append((((b[0]+b[2]-db[0]-db[2])*.5)/w,((b[1]+b[3]-db[1]-db[3])*.5)/h))
+        # Extend each window's extrema once per anchor instead of rescanning it.
         for left in range(len(anchors)):
-            for right in range(left+2,len(anchors)):
-                window=anchors[left:right+1]
-                if window[-1]['t_sec']-window[0]['t_sec']<cfg.min_carry_sec-1e-9:continue
-                rel=[]
-                for p in window:
-                    b,db=p['bbox'],p['dog_bbox'];w=db[2]-db[0];h=db[3]-db[1]
-                    if w<=0 or h<=0:break
-                    rel.append((((b[0]+b[2]-db[0]-db[2])*.5)/w,((b[1]+b[3]-db[1]-db[3])*.5)/h))
-                if len(rel)!=len(window):continue
-                sx=max(p[0] for p in rel)-min(p[0] for p in rel)
-                sy=max(p[1] for p in rel)-min(p[1] for p in rel)
-                scale=diagonal(window[0]['dog_bbox'])
-                disc_move=math.dist(center(window[0]['bbox']),center(window[-1]['bbox']))
-                dog_move=math.dist(center(window[0]['dog_bbox']),center(window[-1]['dog_bbox']))
-                if sx>.25 or sy>.65 or min(disc_move,dog_move)<.08*scale:continue
-                return {'start_frame':window[0]['frame_id'],'end_frame':window[-1]['frame_id'],
-                        'start_sec':window[0]['t_sec'],'end_sec':window[-1]['t_sec'],'dog_id':window[0]['dog_id'],
-                        'observed_samples':len(window),'model_observed_samples':len(window),
+            if relative[left] is None:continue
+            min_x=max_x=relative[left][0];min_y=max_y=relative[left][1]
+            for right in range(left+1,len(anchors)):
+                position=relative[right]
+                # Every larger window contains this invalid dog box as well.
+                if position is None:break
+                min_x=min(min_x,position[0]);max_x=max(max_x,position[0])
+                min_y=min(min_y,position[1]);max_y=max(max_y,position[1])
+                first,last=anchors[left],anchors[right]
+                if right<left+2 or last['t_sec']-first['t_sec']<cfg.min_carry_sec-1e-9:continue
+                sx=max_x-min_x;sy=max_y-min_y
+                if sx>.25 or sy>.65:continue
+                scale=diagonal(first['dog_bbox'])
+                disc_move=math.dist(center(first['bbox']),center(last['bbox']))
+                dog_move=math.dist(center(first['dog_bbox']),center(last['dog_bbox']))
+                if min(disc_move,dog_move)<.08*scale:continue
+                return {'start_frame':first['frame_id'],'end_frame':last['frame_id'],
+                        'start_sec':first['t_sec'],'end_sec':last['t_sec'],'dog_id':first['dog_id'],
+                        'observed_samples':right-left+1,'model_observed_samples':right-left+1,
                         'relative_position_x_spread':sx,'relative_position_y_spread':sy,
-                        'relative_displacement_px':math.dist(center(window[0]['bbox']),center(window[-1]['bbox']))-
-                                                   math.dist(center(window[0]['dog_bbox']),center(window[-1]['dog_bbox'])),
+                        'relative_displacement_px':disc_move-dog_move,
                         'mouth_localized':False,'evidence_type':'disc_stays_in_dog_box_during_motion'}
     return None
 
@@ -149,10 +155,11 @@ def analyze_events(frames,detections,width,height,camera='tripod',settings=None,
             item['predicted_outcome']=event['predicted_outcome']
             if event['carry_evidence'] and row['t_sec']>=event['carry_evidence']['end_sec']:item['phase']='carrying_candidate'
             elif event.get('pickup_evidence') and row['t_sec']>=event['pickup_evidence']['last_disc_sec']:item['phase']='ground_pickup_candidate'
+    first_frame=frames[0]['frame_id']
     for event in events:
-        present={item['throw_id'] for row in ledger for item in row['events'] if row['frame_id']==event['start_frame']}
-        for row in ledger:
-            if event['start_frame']<=row['frame_id']<=event['end_frame'] and not any(item['throw_id']==event['throw_id'] for item in row['events']):
+        for index in range(event['start_frame']-first_frame,event['end_frame']-first_frame+1):
+            row=ledger[index]
+            if not any(item['throw_id']==event['throw_id'] for item in row['events']):
                 source=source_by_frame[row['frame_id']]
                 disc_seen=any(d['disc_id'] in event['disc_ids'] and d['bbox'] is not None for d in source['discs'])
                 phase='ground_pickup_candidate' if event.get('pickup_evidence') and row['t_sec']>=event['pickup_evidence']['last_disc_sec'] else ('flight_candidate' if disc_seen else 'unobserved')

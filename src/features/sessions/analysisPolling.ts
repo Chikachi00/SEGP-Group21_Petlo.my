@@ -1,6 +1,7 @@
 import { isTerminalJob } from "./jobLifecycle.ts";
 import { ApiError } from "../../services/apiClient.ts";
 import { getAnalysisJob } from "./api.ts";
+import { waitUntilVisible } from "../../services/browserVisibility.ts";
 import type { AnalysisJob } from "./types.ts";
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -32,6 +33,7 @@ export async function pollAnalysisJob(jobId: string, options: {
   try {
     while (true) {
       pollingSignal.throwIfAborted();
+      await waitUntilVisible(pollingSignal);
       const job = await readJob(jobId, pollingSignal);
       pollingSignal.throwIfAborted();
       onUpdate?.(job);

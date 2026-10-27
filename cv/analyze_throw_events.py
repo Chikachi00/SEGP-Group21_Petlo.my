@@ -74,7 +74,7 @@ def validate_ground(path,video,points):
     return labels
 
 
-def make_link_features(video,records,points,proposals,tools,temp):
+def make_link_features(video,records,points,proposals,tools,temp,*,save_images=True):
     requests={}
     for p in proposals:
         for frame_id,identity in ((p['from_frame'],p['from_disc_id']),(p['to_frame'],p['to_disc_id'])):
@@ -83,7 +83,8 @@ def make_link_features(video,records,points,proposals,tools,temp):
             requests.setdefault(frame_id,{})[identity]=point
     if not requests:return {},[]
     selected=[r for r in records if r['frame_id'] in requests]
-    folder=temp/'link-audit';folder.mkdir()
+    folder=temp/'link-audit'
+    if save_images:folder.mkdir()
     features={};index=[]
     for record,frame in iter_source_frames(Path(video['source']),selected,video['metadata'],tools):
         for identity,point in requests[record['frame_id']].items():
@@ -91,11 +92,12 @@ def make_link_features(video,records,points,proposals,tools,temp):
             x1,y1,x2,y2=bounds;crop=frame[y1:y2,x1:x2]
             feature=colour_feature(crop)
             if feature is not None:features[(record['frame_id'],identity)]=feature
-            name=f'{identity}-frame-{record["frame_id"]:06d}.jpg'
-            if not cv2.imwrite(str(folder/name),crop):raise RuntimeError('Cannot save link evidence')
-            index.append({**record,'disc_id':identity,'measurement_source':point['measurement_source'],
-                          'file':f'link-audit/{name}','crop_xyxy':bounds,'original_size':[video['width'],video['height']],
-                          'coordinate_mapping':'Original pixels = crop pixels + crop_xyxy top-left; no resize.'})
+            if save_images:
+                name=f'{identity}-frame-{record["frame_id"]:06d}.jpg'
+                if not cv2.imwrite(str(folder/name),crop):raise RuntimeError('Cannot save link evidence')
+                index.append({**record,'disc_id':identity,'measurement_source':point['measurement_source'],
+                              'file':f'link-audit/{name}','crop_xyxy':bounds,'original_size':[video['width'],video['height']],
+                              'coordinate_mapping':'Original pixels = crop pixels + crop_xyxy top-left; no resize.'})
     return features,index
 
 
@@ -137,15 +139,17 @@ def make_contact_crops(video,records,frames,events,tools,temp):
     return index
 
 
-def run(joint_dir,detections,pack,output_dir,preview,settings=None,ground_path=None,ffmpeg_dir=None):
+def run(joint_dir,detections,pack,output_dir,preview=None,settings=None,ground_path=None,ffmpeg_dir=None,*,review=True):
     return _run_analysis(joint_dir,detections,pack,output_dir,preview,settings,ground_path,ffmpeg_dir,
-                         analyzer=analyze_events,version=2)
+                         analyzer=analyze_events,version=2,review=review)
 
 
 def _run_analysis(joint_dir,detections,pack,output_dir,preview,settings=None,ground_path=None,ffmpeg_dir=None,
-                  *,analyzer,version):
+                  *,analyzer,version,review=True):
     started=time.perf_counter();cfg=settings or EventSettings()
-    joint,detections,pack,output,preview=map(lambda p:Path(p).resolve(),(joint_dir,detections,pack,output_dir,preview))
+    joint,detections,pack,output=map(lambda p:Path(p).resolve(),(joint_dir,detections,pack,output_dir))
+    preview=Path(preview).resolve() if preview and review else None
+    if review and preview is None:raise ValueError('Verified clean source preview required for review output')
     ground_path=Path(ground_path).resolve() if ground_path else None
     s,frames=validate_joint(joint)
     video,records,detector_rows,_=load_detections(detections,pack)
@@ -158,27 +162,32 @@ def _run_analysis(joint_dir,detections,pack,output_dir,preview,settings=None,gro
         raise ValueError('Detector file differs from joint input')
     protected=[joint,pack,Path(video['source']).resolve().parent,PROJECT/'sources',PROJECT/'cv',PROJECT/'docs',PROJECT/'tests',
                PROJECT/'outputs'/'dog-tracking',PROJECT/'outputs'/'disc-tracking',PROJECT/'outputs'/'disc-tracking-v2',PROJECT/'outputs'/'joint-previews']
-    if any(output.is_relative_to(p) or p.is_relative_to(output) for p in protected) or any(p.is_relative_to(output) for p in (detections,preview)):
+    if any(output.is_relative_to(p) or p.is_relative_to(output) for p in protected) or any(p.is_relative_to(output) for p in (detections,preview) if p is not None):
         raise ValueError('Choose an independent event output directory')
-    preview_report=read_json(preview.with_suffix('.json'))
-    if preview_report.get('status')!='complete' or preview_report['signature']['source_sha256']!=video['source_sha256'] or preview_report['signature']['source_frames']!=len(records) or preview_report['sha256']!=sha256(preview):
-        raise ValueError('Verified clean source preview required')
+    if review:
+        preview_report=read_json(preview.with_suffix('.json'))
+        if preview_report.get('status')!='complete' or preview_report['signature']['source_sha256']!=video['source_sha256'] or preview_report['signature']['source_frames']!=len(records) or preview_report['sha256']!=sha256(preview):
+            raise ValueError('Verified clean source preview required')
     points=observed_points(frames,detector_rows)
     labels=validate_ground(ground_path,video,points)
     tools=Toolchain.discover(ffmpeg_dir)
     names=['throw_events.py','analyze_throw_events.py','joint_analysis.py','analyze_dog_disc.py','track_dog_video.py','dog_tracker.py','detect_disc_video.py','video_tools/media.py','video_tools/review.py']
     if version==3:names=['throw_events_v3.py','analyze_throw_events_v3.py',*names]
     event_file=f'events-v{version}.json'
-    inputs=[joint/'summary.json',joint/'joint-states.jsonl',detections,detections.with_suffix('.json'),pack/'manifest.json',pack/video['paths']['frame_index'],preview,preview.with_suffix('.json')]
+    inputs=[joint/'summary.json',joint/'joint-states.jsonl',detections,detections.with_suffix('.json'),pack/'manifest.json',pack/video['paths']['frame_index']]
+    if preview:inputs.extend((preview,preview.with_suffix('.json')))
     if ground_path:inputs.append(ground_path)
     signature={'schema_version':version,'video_id':video['id'],'source_sha256':video['source_sha256'],'settings':asdict(cfg),'camera':video['camera'],
+               'review':review,
                'toolchain':tools.version,'opencv':cv2.__version__,'inputs':{str(p):sha256(p) for p in inputs},
                'code':{n:sha256(Path(__file__).parent/n) for n in names},'output_dir':str(output)}
     key=hashlib.sha256(json.dumps(signature,sort_keys=True).encode()).hexdigest()
     if output.exists():
         cached=read_json(output/'summary.json')
         artifacts=cached.get('artifact_sha256',{})
-        if cached.get('status')!='complete' or cached.get('cache_key')!=key or not {event_file,'event-states.jsonl','index.html','crop-index.json'}.issubset(artifacts):raise ValueError('Existing event output differs; choose a new directory')
+        required={event_file,'event-states.jsonl','diagnostics.json'}
+        if review:required.update(('index.html','crop-index.json','manual-review-template.json','ground-contact-template.json'))
+        if cached.get('status')!='complete' or cached.get('cache_key')!=key or not required.issubset(artifacts):raise ValueError('Existing event output differs; choose a new directory')
         for name,digest in artifacts.items():
             target=(output/name).resolve()
             if not target.is_relative_to(output) or sha256(target)!=digest:raise ValueError('Event cache modified; choose a new directory')
@@ -187,26 +196,27 @@ def _run_analysis(joint_dir,detections,pack,output_dir,preview,settings=None,gro
     try:
         proposals=link_proposals(points,video['width'],video['height'],video['camera'],cfg)
         print(f'{video["id"]}: {len(proposals)} geometric identity-link proposals; reading actual endpoint crops',flush=True)
-        features,link_images=make_link_features(video,records,points,proposals,tools,temp)
+        features,link_images=make_link_features(video,records,points,proposals,tools,temp,save_images=review)
         events,ledger,diagnostics=analyzer(frames,detector_rows,video['width'],video['height'],video['camera'],cfg,features,labels)
-        print(f'{video["id"]}: {len(events)} episode candidates; preparing bounded contact crops',flush=True)
-        crop_index=make_contact_crops(video,records,frames,events,tools,temp)
+        print(f'{video["id"]}: {len(events)} episode candidates'+('; preparing bounded contact crops' if review else ''),flush=True)
+        crop_index=make_contact_crops(video,records,frames,events,tools,temp) if review else []
         write_json(temp/event_file,{'schema_version':version,'video_id':video['id'],'event_candidates':events,'confirmed_results_available':False})
         (temp/'event-states.jsonl').write_text(''.join(json.dumps(r,allow_nan=False)+'\n' for r in ledger),encoding='utf-8')
         write_json(temp/'diagnostics.json',diagnostics)
-        write_json(temp/'crop-index.json',{'video_id':video['id'],'link_endpoint_images':link_images,'contact_images':crop_index,
-                   'model_reading_rule':'Inspect one throw window at a time, at most 8 independent images per batch. Native crops are not labels.'})
-        write_json(temp/'manual-review-template.json',{'video_id':video['id'],'source_sha256':video['source_sha256'],
-                   'instructions':'Copy before editing. Predicted outcomes are unverified; retain uncertain when evidence is insufficient. No automatic review import in this version.',
-                   'reviews':[{'throw_id':e['throw_id'],'review_status':'unreviewed','confirmed_throw':None,'verified_outcome':None,
-                               'allowed_outcomes':(['catch','ground_pickup','miss','uncertain','false_candidate'] if version==3 else ['catch','miss','uncertain','false_candidate']),'reviewer':None,'evidence_frames':[],'notes':''} for e in events]})
-        write_json(temp/'ground-contact-template.json',{'video_id':video['id'],'source_sha256':video['source_sha256'],'ground_contacts':[],
-                   'example_only':{'disc_id':'disc-XXX','frame_id':0,'verified':True,'reviewer':'REPLACE_WITH_REVIEWER','notes':'Observed ground contact on this original frame; example is not used.'}})
-        (temp/'index.html').write_text(review_page(video,frames,ledger,events,crop_index,preview,output,version=version),encoding='utf-8')
+        if review:
+            write_json(temp/'crop-index.json',{'video_id':video['id'],'link_endpoint_images':link_images,'contact_images':crop_index,
+                       'model_reading_rule':'Inspect one throw window at a time, at most 8 independent images per batch. Native crops are not labels.'})
+            write_json(temp/'manual-review-template.json',{'video_id':video['id'],'source_sha256':video['source_sha256'],
+                       'instructions':'Copy before editing. Predicted outcomes are unverified; retain uncertain when evidence is insufficient. No automatic review import in this version.',
+                       'reviews':[{'throw_id':e['throw_id'],'review_status':'unreviewed','confirmed_throw':None,'verified_outcome':None,
+                                   'allowed_outcomes':(['catch','ground_pickup','miss','uncertain','false_candidate'] if version==3 else ['catch','miss','uncertain','false_candidate']),'reviewer':None,'evidence_frames':[],'notes':''} for e in events]})
+            write_json(temp/'ground-contact-template.json',{'video_id':video['id'],'source_sha256':video['source_sha256'],'ground_contacts':[],
+                       'example_only':{'disc_id':'disc-XXX','frame_id':0,'verified':True,'reviewer':'REPLACE_WITH_REVIEWER','notes':'Observed ground contact on this original frame; example is not used.'}})
+            (temp/'index.html').write_text(review_page(video,frames,ledger,events,crop_index,preview,output,version=version),encoding='utf-8')
         if any(sha256(p)!=h for p,h in signature['inputs'].items()) or sha256(video['source'])!=video['source_sha256']:raise ValueError('Input changed during event analysis')
         summary={'status':'complete','video_id':video['id'],'cache_key':key,'provenance':signature,**diagnostics['metrics'],
                  'processing_seconds':time.perf_counter()-started,'contact_crop_frames':len(crop_index),
-                 'validated':{'full_source_frame_alignment':True,'source_content_unchanged':True,'predictions_excluded':True,'native_crop_coordinate_mapping':True},
+                 'validated':{'full_source_frame_alignment':True,'source_content_unchanged':True,'predictions_excluded':True,'native_crop_coordinate_mapping':True if review else None},
                  'limitations':['throw_id identifies a review episode, not a verified physical throw. Counts are not precision/recall.',
                     'Catch candidate uses 2D proximity and co-motion; mouth contact is not localized. Retrieval can look similar.',
                     'Miss candidates require explicit reviewed ground frames plus subsequent stillness/separation; missing boxes never imply a miss.',
@@ -257,11 +267,13 @@ def main(*,runner=run,description=__doc__):
     parser.add_argument('--detections',type=Path,required=True)
     parser.add_argument('--pack',type=Path,default=PROJECT/'outputs'/'video-analysis-pack')
     parser.add_argument('--output-dir',type=Path,required=True)
-    parser.add_argument('--preview',type=Path,required=True)
+    parser.add_argument('--preview',type=Path)
+    parser.add_argument('--no-review',action='store_true',help='Write event data without offline HTML, audit images or review templates; --preview is then unnecessary.')
     parser.add_argument('--ground-evidence',type=Path)
     parser.add_argument('--ffmpeg-dir',type=Path)
     args=parser.parse_args()
-    try:runner(args.joint_dir,args.detections,args.pack,args.output_dir,args.preview,ground_path=args.ground_evidence,ffmpeg_dir=args.ffmpeg_dir)
+    if not args.no_review and args.preview is None:parser.error('--preview is required unless --no-review is used')
+    try:runner(args.joint_dir,args.detections,args.pack,args.output_dir,args.preview,ground_path=args.ground_evidence,ffmpeg_dir=args.ffmpeg_dir,review=not args.no_review)
     except (ValueError,OSError,RuntimeError,KeyError,StopIteration) as exc:parser.exit(1,f'Throw-event analysis failed: {exc}\n')
 
 

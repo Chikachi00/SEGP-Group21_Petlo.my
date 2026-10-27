@@ -18,7 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import Settings
 from .db import Dog, Event, Job, LegacyVideo, TrainingSession, SessionPreferences, Video, database, initialize, now
 from .jobs import JobManager
-from .process_control import ACTIVE, TERMINAL
+from .process_control import ACTIVE
 from .pipeline import PipelineRunner, inside, validate_selection
 from .schemas import ControlJob, RenameSession, CreateDog, CreateSession, DetailOut, JobOut, SessionListOut, SessionOut, StartAnalysis, VideoOut
 
@@ -116,16 +116,19 @@ def create_app(settings=None, runner=None):
             problem(404, 'SESSION_IN_TRASH', 'This session is in Trash. Restore it first.')
         return value
 
-    def summary(db, value):
-        job = db.get(Job, value.current_job_id) if value.current_job_id else None
+    def session_summary(value, job, preferences, views):
         result = job.result_json if job and job.status == 'completed' else None
-        preferences = db.get(SessionPreferences, value.session_id)
-        views = set(db.scalars(select(Video.camera_perspective).where(Video.session_id == value.session_id)))
         default_name = 'Front + Side session' if len(views) == 2 else 'Side view session' if views == {'side'} else 'Front view session' if views == {'front'} else 'Training session'
         return {'session_id': value.session_id, 'dog_id': str(value.dog_id), 'date': value.recorded_at,
                 'name': preferences.display_name if preferences and preferences.display_name else default_name,
                 'deleted_at': preferences.deleted_at if preferences else None,
                 'status': value.status, 'statistics': result['statistics'] if result else None}
+
+    def summary(db, value):
+        job = db.get(Job, value.current_job_id) if value.current_job_id else None
+        preferences = db.get(SessionPreferences, value.session_id)
+        views = set(db.scalars(select(Video.camera_perspective).where(Video.session_id == value.session_id)))
+        return session_summary(value, job, preferences, views)
 
     def video_json(value, request):
         url = str(request.url_for('playback', video_id=value.video_id)) if value.preview_key else None
@@ -189,32 +192,41 @@ def create_app(settings=None, runner=None):
         storage_key = f'uploads/{identity}{suffix}'
         target = inside(config.storage, storage_key)
         saved = False
+
+        def writable_parent(db):
+            parent = owned(db, session_id)
+            if parent.current_job_id:
+                problem(409, 'SESSION_LOCKED', 'Videos cannot be added after analysis starts.')
+            if db.scalar(select(Video.video_id).where(Video.session_id == session_id, Video.camera_perspective == camera_perspective)):
+                problem(409, 'DUPLICATE_VIEW', 'This session already has that camera view.')
+            return parent
+
         try:
+            # Validate before expensive I/O, then recheck under the write lock
+            # before committing. Media copying/probing must not lock every session.
+            with sessions() as db:
+                writable_parent(db)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256()
+            size = 0
+            with target.open('xb') as stream:
+                while chunk := file.file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > config.max_upload_bytes:
+                        problem(413, 'UPLOAD_TOO_LARGE', 'Video exceeds the configured limit.')
+                    digest.update(chunk)
+                    stream.write(chunk)
+            if size == 0:
+                problem(422, 'VIDEO_EMPTY', 'Video is empty.')
+            try:
+                metadata = worker.probe(target)
+                if not math.isfinite(metadata['duration']) or metadata['duration'] <= 0 or metadata['width'] <= 0 or metadata['height'] <= 0:
+                    raise ValueError('Invalid dimensions/duration')
+            except Exception:
+                log.exception('Video metadata validation failed')
+                problem(422, 'VIDEO_INVALID', 'Video could not be validated by the local decoder. Check the media and FFmpeg configuration.')
             with lock, sessions.begin() as db:
-                parent = owned(db, session_id)
-                if parent.current_job_id:
-                    problem(409, 'SESSION_LOCKED', 'Videos cannot be added after analysis starts.')
-                if db.scalar(select(Video.video_id).where(Video.session_id == session_id, Video.camera_perspective == camera_perspective)):
-                    problem(409, 'DUPLICATE_VIEW', 'This session already has that camera view.')
-                target.parent.mkdir(parents=True, exist_ok=True)
-                digest = hashlib.sha256()
-                size = 0
-                with target.open('xb') as stream:
-                    while chunk := file.file.read(1024 * 1024):
-                        size += len(chunk)
-                        if size > config.max_upload_bytes:
-                            problem(413, 'UPLOAD_TOO_LARGE', 'Video exceeds the configured limit.')
-                        digest.update(chunk)
-                        stream.write(chunk)
-                if size == 0:
-                    problem(422, 'VIDEO_EMPTY', 'Video is empty.')
-                try:
-                    metadata = worker.probe(target)
-                    if not math.isfinite(metadata['duration']) or metadata['duration'] <= 0 or metadata['width'] <= 0 or metadata['height'] <= 0:
-                        raise ValueError('Invalid dimensions/duration')
-                except Exception:
-                    log.exception('Video metadata validation failed')
-                    problem(422, 'VIDEO_INVALID', 'Video could not be validated by the local decoder. Check the media and FFmpeg configuration.')
+                parent = writable_parent(db)
                 legacy = LegacyVideo(file_path=storage_key, camera_perspective=camera_perspective, video_length=math.ceil(metadata['duration']))
                 db.add(legacy)
                 db.flush()
@@ -345,21 +357,32 @@ def create_app(settings=None, runner=None):
         if page < 1 or not 1 <= page_size <= 100:
             problem(422, 'INVALID_PAGE', 'Use page >= 1 and page_size from 1 to 100.')
         with sessions() as db:
-            query = select(TrainingSession).outerjoin(SessionPreferences).where(TrainingSession.trainer_id == config.local_user_id,
+            query = select(TrainingSession, SessionPreferences, Job).outerjoin(SessionPreferences).outerjoin(
+                Job, Job.job_id == TrainingSession.current_job_id).where(TrainingSession.trainer_id == config.local_user_id,
                 SessionPreferences.deleted_at.is_not(None) if trash else SessionPreferences.deleted_at.is_(None))
-            total = db.scalar(select(func.count()).select_from(query.subquery()))
-            values = db.scalars(query.order_by(TrainingSession.recorded_at.desc(), TrainingSession.session_id.desc()).offset((page - 1) * page_size).limit(page_size))
-            return {'items': [summary(db, value) for value in values], 'page': page, 'page_size': page_size, 'total': total}
+            total = db.scalar(select(func.count()).select_from(TrainingSession).outerjoin(SessionPreferences).where(
+                TrainingSession.trainer_id == config.local_user_id,
+                SessionPreferences.deleted_at.is_not(None) if trash else SessionPreferences.deleted_at.is_(None)))
+            values = db.execute(query.order_by(TrainingSession.recorded_at.desc(), TrainingSession.session_id.desc()).offset(
+                (page - 1) * page_size).limit(page_size)).all()
+            views = {value.session_id: set() for value, _, _ in values}
+            if views:
+                for identity, view in db.execute(select(Video.session_id, Video.camera_perspective).where(Video.session_id.in_(views))):
+                    views[identity].add(view)
+            return {'items': [session_summary(value, job, preferences, views[value.session_id]) for value, preferences, job in values],
+                    'page': page, 'page_size': page_size, 'total': total}
 
     @app.get('/api/v1/sessions/{session_id}', response_model=DetailOut)
     def detail(session_id: str, request: Request):
         with sessions() as db:
             parent = owned(db, session_id)
-            value = summary(db, parent)
             job = db.get(Job, parent.current_job_id) if parent.current_job_id else None
+            preferences = db.get(SessionPreferences, session_id)
+            videos = list(db.scalars(select(Video).where(Video.session_id == session_id)))
+            value = session_summary(parent, job, preferences, {video.camera_perspective for video in videos})
             result = job.result_json if job and job.status == 'completed' else None
             events = db.scalars(select(Event).where(Event.job_id == job.job_id).order_by(Event.event_id)) if result else []
-            value.update(videos=[video_json(v, request) for v in db.scalars(select(Video).where(Video.session_id == session_id))],
+            value.update(videos=[video_json(v, request) for v in videos],
                 events=[{'event_id': e.event_id, 'category': e.category, 'conflict': e.conflict, 'source_intervals': e.source_intervals} for e in events],
                 algorithm_version=result['algorithm_version'] if result else None,
                 limitations=result['limitations'] if result else [], current_job_id=parent.current_job_id)

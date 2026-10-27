@@ -12,10 +12,11 @@ export function reportCsv(session: SessionDetail): string {
     const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
     return `"${safe.replaceAll('"', '""')}"`;
   };
+  const perspectives = new Map(session.videos.map(video => [video.video_id, video.camera_perspective]));
   const header = ["session_id", "event_id", "candidate_category", "conflicting_views", "video_id", "camera_view", "start_seconds", "end_seconds", "human_verified"];
   const rows = session.events.flatMap(event => event.source_intervals.map(interval => [
     session.session_id, event.event_id, event.category, event.conflict, interval.video_id,
-    session.videos.find(video => video.video_id === interval.video_id)?.camera_perspective ?? "unknown",
+    perspectives.get(interval.video_id) ?? "unknown",
     interval.start_sec, interval.end_sec, false,
   ]));
   return [header, ...rows].map(row => row.map(cell).join(",")).join("\r\n") + "\r\n";

@@ -144,6 +144,19 @@ class RecoverySafetyTests(unittest.TestCase):
         for values in ({'max_visual_sec':2},{'min_history':True},{'hue_tolerance':30},{'roi_imgsz':0}):
             with self.assertRaises(ValueError): RecoverySettings(**values)
 
+    def test_local_model_uses_requested_device_without_moving_shared_model_to_cpu(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        self.assertEqual(RecoveryTracker(400,240).device,'cpu')
+        for device in ('cpu','0','cuda:1',0):
+            with self.subTest(device=device):
+                model=SimpleNamespace(predict=Mock(return_value=[SimpleNamespace(boxes=[])]))
+                tracker=RecoveryTracker(400,240,model=model,names={29:'frisbee'},device=device)
+                for i in range(6):tracker.update(i*.02,[detection(40+8*i)],image(40+8*i))
+                tracker.update(.12,[],image())
+                model.predict.assert_called_once()
+                self.assertEqual(model.predict.call_args.kwargs['device'],device)
+
 
 class RecoveryMediaTests(unittest.TestCase):
     @classmethod

@@ -146,7 +146,7 @@ def annotate(frame, record, observation, trail):
     return frame
 
 
-def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., end=None):
+def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., end=None, *, render=True):
     started = time.perf_counter()
     settings = settings or TrackingSettings()
     detections, pack, output = Path(detections).resolve(), Path(pack).resolve(), Path(output_dir).resolve()
@@ -162,7 +162,7 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
     records, detector_rows = map(list, zip(*selected))
     tools = Toolchain.discover(ffmpeg_dir)
     code_files = [Path(__file__), Path(__file__).with_name("dog_tracker.py"), Path(__file__).with_name("detect_disc_video.py"), Path(__file__).parent / "video_tools" / "media.py"]
-    signature = {"version": VERSION, "source_sha256": video["source_sha256"], "detections_sha256": sha256(detections),
+    signature = {"version": VERSION, "render_review": render, "source_sha256": video["source_sha256"], "detections_sha256": sha256(detections),
                  "detector_report_sha256": sha256(detections.with_suffix(".json")), "settings": asdict(settings),
                  "first_frame": records[0], "last_frame": records[-1], "toolchain": tools.version,
                  "code": {str(p.relative_to(Path(__file__).parent)): sha256(p) for p in code_files}, "opencv": cv2.__version__}
@@ -171,9 +171,15 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
         summary = read_json(output / "summary.json")
         if summary.get("status") != "complete" or summary.get("cache_key") != key:
             raise ValueError("Output already exists with different settings/input; use a new output directory")
-        for name, digest in summary["artifact_sha256"].items():
+        artifacts = summary.get("artifact_sha256")
+        required = {"tracks.jsonl", "states.jsonl", "trajectory.csv"}
+        if render:
+            required.add("tracked.mp4")
+        if not isinstance(artifacts, dict) or not required.issubset(artifacts):
+            raise ValueError("Invalid cached output manifest")
+        for name, digest in artifacts.items():
             target = (output / name).resolve()
-            if not target.is_relative_to(output) or sha256(target) != digest:
+            if not target.is_relative_to(output) or not target.is_file() or sha256(target) != digest:
                 raise ValueError("Cached output changed; choose a new directory to regenerate")
         print(f"Verified cache: {output}", flush=True)
         return summary
@@ -203,35 +209,37 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
                                      *(center(row["bbox"]) if row["bbox"] else ["", ""]),
                                      *(center(row["prediction_bbox"]) if row["prediction_bbox"] else ["", ""]),
                                      row["confidence"] if row["confidence"] is not None else ""])
-        fps = video["metadata"]["avg_frame_rate"]
-        if not fps or not math.isfinite(fps) or fps <= 0:
-            raise ValueError("Positive nominal preview frame rate required")
-        writer = cv2.VideoWriter(str(temp / "tracked.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), fps, (video["width"], video["height"]))
-        if not writer.isOpened():
-            raise RuntimeError("Cannot open tracking video writer")
-        trail, decoded = deque(), 0
-        still_ids = {0, len(records) // 2, len(records) - 1}
-        # Also retain the first short prediction and the first long loss, with
-        # their immediate neighbours, for a bounded initial visual audit.
-        for wanted in ("predicted", "lost"):
-            item = next((i for i, r in enumerate(observations) if r["state"] == wanted), None)
-            if item is not None:
-                still_ids.update({max(0, item - 1), item, min(len(records) - 1, item + 1)})
-        for i, (record, frame) in enumerate(iter_source_frames(source, records, video["metadata"], tools)):
-            annotated = annotate(frame, record, observations[i], trail)
-            writer.write(annotated)
-            if i in still_ids:
-                if not cv2.imwrite(str(temp / f"frame-{record['frame_id']:06d}.jpg"), annotated):
-                    raise RuntimeError("Cannot save tracking audit image")
-            decoded += 1
-            if decoded % 300 == 0:
-                print(f"{video['id']}: rendered {decoded}/{len(records)} source frames", flush=True)
-        writer.release()
-        writer = None
-        probe = subprocess.run([tools.ffprobe, "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=width,height,nb_read_frames", "-of", "json", str(temp / "tracked.mp4")], capture_output=True, check=True)
-        stream = json.loads(probe.stdout)["streams"][0]
-        if decoded != len(records) or int(stream["nb_read_frames"]) != decoded or (stream["width"], stream["height"]) != (video["width"], video["height"]):
-            raise RuntimeError("Tracking replay failed frame-count/dimension verification")
+        decoded = len(records)
+        if render:
+            fps = video["metadata"]["avg_frame_rate"]
+            if not fps or not math.isfinite(fps) or fps <= 0:
+                raise ValueError("Positive nominal preview frame rate required")
+            writer = cv2.VideoWriter(str(temp / "tracked.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), fps, (video["width"], video["height"]))
+            if not writer.isOpened():
+                raise RuntimeError("Cannot open tracking video writer")
+            trail, decoded = deque(), 0
+            still_ids = {0, len(records) // 2, len(records) - 1}
+            # Also retain the first short prediction and the first long loss, with
+            # their immediate neighbours, for a bounded initial visual audit.
+            for wanted in ("predicted", "lost"):
+                item = next((i for i, r in enumerate(observations) if r["state"] == wanted), None)
+                if item is not None:
+                    still_ids.update({max(0, item - 1), item, min(len(records) - 1, item + 1)})
+            for i, (record, frame) in enumerate(iter_source_frames(source, records, video["metadata"], tools)):
+                annotated = annotate(frame, record, observations[i], trail)
+                writer.write(annotated)
+                if i in still_ids:
+                    if not cv2.imwrite(str(temp / f"frame-{record['frame_id']:06d}.jpg"), annotated):
+                        raise RuntimeError("Cannot save tracking audit image")
+                decoded += 1
+                if decoded % 300 == 0:
+                    print(f"{video['id']}: rendered {decoded}/{len(records)} source frames", flush=True)
+            writer.release()
+            writer = None
+            probe = subprocess.run([tools.ffprobe, "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=width,height,nb_read_frames", "-of", "json", str(temp / "tracked.mp4")], capture_output=True, check=True)
+            stream = json.loads(probe.stdout)["streams"][0]
+            if decoded != len(records) or int(stream["nb_read_frames"]) != decoded or (stream["width"], stream["height"]) != (video["width"], video["height"]):
+                raise RuntimeError("Tracking replay failed frame-count/dimension verification")
         if sha256(source) != video["source_sha256"] or sha256(detections) != signature["detections_sha256"] or sha256(detections.with_suffix(".json")) != signature["detector_report_sha256"]:
             raise ValueError("Source or detector input changed during tracking")
         states = Counter(row["state"] for row in observations)
@@ -251,7 +259,7 @@ def run(detections, pack, output_dir, settings=None, ffmpeg_dir=None, start=0., 
                    "rejection_reasons": dict(Counter(r["reason"] for r in observations if r["reason"])),
                    "missing_windows": sorted(gaps, key=lambda g: g["frames"], reverse=True),
                    "tracking_compute_seconds": compute_seconds, "processing_seconds": time.perf_counter() - started,
-                   "validated": {"source_content_unchanged": True, "source_timestamp_index": True, "review_contract": True, "output_frame_count": decoded},
+                   "validated": {"source_content_unchanged": True, "source_timestamp_index": True, "review_contract": True, "output_frame_count": decoded if render else None},
                    "limitations": ["Single primary dog; no appearance re-identification or camera-motion compensation.",
                                    "Green = accepted measurement; dashed yellow = bounded prediction, never an observed detection.",
                                    "Long absence can end an ID; different IDs may represent the same dog.",
@@ -287,11 +295,12 @@ def main():
     parser.add_argument("--confirm-samples", type=int, default=3)
     parser.add_argument("--confidence", type=float, default=.25)
     parser.add_argument("--ffmpeg-dir", type=Path)
+    parser.add_argument("--no-review", action="store_true", help="Write tracking data without decoding and rendering review footage")
     args = parser.parse_args()
     try:
         settings = TrackingSettings(confirm_samples=args.confirm_samples, prediction_sec=args.prediction_seconds,
                                     identity_gap_sec=args.identity_gap_seconds, confidence=args.confidence)
-        run(args.detections, args.pack, args.output_dir, settings, args.ffmpeg_dir, args.start, args.end)
+        run(args.detections, args.pack, args.output_dir, settings, args.ffmpeg_dir, args.start, args.end, render=not args.no_review)
     except (ValueError, OSError, RuntimeError, KeyError, subprocess.SubprocessError) as exc:
         parser.exit(1, f"Tracking failed: {exc}\n")
 

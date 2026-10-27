@@ -5,10 +5,7 @@ import type { AnalysisJob } from "../types.ts";
 import { analysisSteps, elapsedSeconds, formatElapsed, stageLabel } from "../analysisPresentation.ts";
 import "../analysis.css";
 
-export default function AnalysisStatusCard({ job, views, error, lastCheckedAt, onResume }: {
-  job: AnalysisJob | null; views: string[]; error: Error | null;
-  lastCheckedAt: number | null; onResume: () => void;
-}) {
+function ElapsedTime({ job }: { job: AnalysisJob | null }) {
   const [clock, setClock] = useState(Date.now);
   const active = isActiveJob(job?.status);
   useEffect(() => {
@@ -16,6 +13,14 @@ export default function AnalysisStatusCard({ job, views, error, lastCheckedAt, o
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
+  return formatElapsed(elapsedSeconds(job, clock));
+}
+
+export default function AnalysisStatusCard({ job, views, error, lastCheckedAt, onResume }: {
+  job: AnalysisJob | null; views: string[]; error: Error | null;
+  lastCheckedAt: number | null; onResume: () => void;
+}) {
+  const active = isActiveJob(job?.status);
   const steps = analysisSteps(views);
   const position = steps.findIndex(step => step.id === job?.stage);
   return <div className="panel analysis-card">
@@ -26,7 +31,7 @@ export default function AnalysisStatusCard({ job, views, error, lastCheckedAt, o
       </span>
     </div>
     <p role="status" aria-live="polite">{error ? "The task may still be running. Reconnect to check it; no new analysis will be submitted." : stageLabel(job?.stage)}</p>
-    <dl className="analysis-facts"><div><dt>Time since submission</dt><dd>{formatElapsed(elapsedSeconds(job, clock))}</dd></div>
+    <dl className="analysis-facts"><div><dt>Time since submission</dt><dd><ElapsedTime job={job} /></dd></div>
       <div><dt>Last status check</dt><dd>{lastCheckedAt ? new Date(lastCheckedAt).toLocaleTimeString() : "Waiting"}</dd></div>
       </dl>
     <JobControlButtons job={job} onUpdate={onResume} />

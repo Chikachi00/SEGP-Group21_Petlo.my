@@ -82,7 +82,9 @@ def merge_discs(detections, iou=.5):
 
 
 def detect_frame(model, frame, names, *, imgsz=1280, confidence=.25,
-                 disc_confidence=.25, grid=2, tile_imgsz=960, overlap=.2, device="cpu"):
+                 disc_confidence=.25, grid=2, tile_imgsz=960, overlap=.2, device="cpu", tile_batch_size=1):
+    if type(tile_batch_size) is not int or tile_batch_size < 1:
+        raise ValueError("Tile batch size must be a positive integer")
     height, width = frame.shape[:2]
     relevant = [k for k, name in names.items() if name.lower() in LABELS]
     disc_ids = [k for k, name in names.items() if name.lower() == "frisbee"]
@@ -91,10 +93,22 @@ def detect_frame(model, frame, names, *, imgsz=1280, confidence=.25,
     predictions = model.predict(source=frame, imgsz=imgsz, conf=min(confidence, disc_confidence),
                                 classes=relevant, device=device, verbose=False)[0]
     detections = convert_boxes(predictions, names, (width, height))
-    for x1, y1, x2, y2 in crop_grid(width, height, grid, overlap):
-        predictions = model.predict(source=frame[y1:y2, x1:x2], imgsz=tile_imgsz,
-                                    conf=disc_confidence, classes=disc_ids, device=device, verbose=False)[0]
-        detections.extend(convert_boxes(predictions, names, (width, height), (x1, y1), "tile"))
+    tiles = crop_grid(width, height, grid, overlap)
+    for start in range(0, len(tiles), tile_batch_size):
+        bounds = tiles[start:start + tile_batch_size]
+        crops = [frame[y1:y2, x1:x2] for x1, y1, x2, y2 in bounds]
+        # Rectangular padding matches single-crop inference only for equal shapes.
+        # Preserve crop order, offsets and individual inference for other shapes.
+        if len(crops) > 1 and len({crop.shape for crop in crops}) == 1:
+            predictions = model.predict(source=crops, imgsz=tile_imgsz, conf=disc_confidence,
+                                        classes=disc_ids, device=device, verbose=False, rect=True)
+        else:
+            predictions = [model.predict(source=crop, imgsz=tile_imgsz, conf=disc_confidence,
+                                         classes=disc_ids, device=device, verbose=False)[0] for crop in crops]
+        if len(predictions) != len(bounds):
+            raise RuntimeError("Tile prediction count differs from the crop batch")
+        for result, (x1, y1, _, _) in zip(predictions, bounds):
+            detections.extend(convert_boxes(result, names, (width, height), (x1, y1), "tile"))
     detections = [d for d in detections if d.confidence >= (disc_confidence if d.label == "frisbee" else confidence)]
     return merge_discs(detections) if grid else detections
 
@@ -125,7 +139,8 @@ def load_source(pack, source, start=0., end=None):
     return video, frames
 
 
-def run(args):
+def run(args, *, model=None, render=True):
+    render = render and not getattr(args, 'no_review', False)
     source = args.video.resolve()
     video, frames = load_source(args.pack, source, args.start, args.end)
     output = (args.output or Path("outputs") / f"{source.stem}_disc_{args.mode}.mp4").resolve()
@@ -136,13 +151,17 @@ def run(args):
     sizes = args.imgsz or (640 if args.mode == "baseline" else 1280)
     grid = args.disc_grid if args.disc_grid is not None else (0 if args.mode == "baseline" else 2)
     settings = dict(imgsz=sizes, confidence=args.confidence, disc_confidence=args.disc_confidence,
-                    grid=grid, tile_imgsz=args.tile_imgsz, overlap=args.overlap, device=args.device)
+                    grid=grid, tile_imgsz=args.tile_imgsz, overlap=args.overlap, device=args.device,
+                    tile_batch_size=getattr(args, 'tile_batch_size', 1))
+    if type(settings['tile_batch_size']) is not int or settings['tile_batch_size'] < 1:
+        raise ValueError("Tile batch size must be a positive integer")
     crop_grid(video["width"], video["height"], grid, args.overlap)
-    import torch
-    torch.set_num_threads(args.cpu_threads)
     if not Path(args.model).is_file():
         raise ValueError("A local model weights file is required; this command does not download weights")
-    model = load_detection_model(args.model)
+    if model is None:
+        import torch
+        torch.set_num_threads(args.cpu_threads)
+        model = load_detection_model(args.model)
     names = model_class_names(model)
     tools = Toolchain.discover(args.ffmpeg_dir)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -151,18 +170,20 @@ def run(args):
     result_path, report_path = output.with_suffix(".jsonl"), output.with_suffix(".json")
     temp_results = output.with_name(f".{output.stem}-{run_id}.jsonl")
     temp_report = output.with_name(f".{output.stem}-{run_id}.json")
-    fps = video["metadata"]["avg_frame_rate"]
-    if not fps or not math.isfinite(fps) or fps <= 0:
-        raise ValueError("Positive nominal playback frame rate required")
-    writer = cv2.VideoWriter(str(temp_video), cv2.VideoWriter_fourcc(*"mp4v"), fps, (video["width"], video["height"]))
-    if not writer.isOpened():
-        writer.release()
-        raise RuntimeError("Cannot create annotated output")
+    writer = None
+    if render:
+        fps = video["metadata"]["avg_frame_rate"]
+        if not fps or not math.isfinite(fps) or fps <= 0:
+            raise ValueError("Positive nominal playback frame rate required")
+        writer = cv2.VideoWriter(str(temp_video), cv2.VideoWriter_fourcc(*"mp4v"), fps, (video["width"], video["height"]))
+        if not writer.isOpened():
+            writer.release()
+            raise RuntimeError("Cannot create annotated output")
     counts = {"processed_frames": 0, "dog_frames": 0, "disc_frames": 0, "person_frames": 0}
     started = time.perf_counter()
     try:
         with temp_results.open("w", encoding="utf-8") as handle:
-            for record, frame in iter_source_frames(source, frames, video["metadata"], tools):
+            for record, frame in iter_source_frames(source, frames, video["metadata"], tools, mutable=render):
                 detections = detect_frame(model, frame, names, **settings)
                 labels = {d.label for d in detections}
                 for key, label in (("dog_frames", "dog"), ("disc_frames", "frisbee"), ("person_frames", "person")):
@@ -172,14 +193,16 @@ def run(args):
                     {"label": "disc" if d.label == "frisbee" else d.label, "bbox": d.bbox,
                      "confidence": d.confidence, "origin": d.origin} for d in detections]}
                 handle.write(json.dumps(row, allow_nan=False) + "\n")
-                for d in detections:
-                    draw_detection(frame, (*[round(v) for v in d.bbox], d.confidence, d.label))
-                cv2.putText(frame, f"{args.mode} | source frame {record['frame_id']} | {record['t_sec']:.3f}s",
-                            (20, 35), cv2.FONT_HERSHEY_SIMPLEX, .8, (255, 255, 255), 2)
-                writer.write(frame)
+                if render:
+                    for d in detections:
+                        draw_detection(frame, (*[round(v) for v in d.bbox], d.confidence, d.label))
+                    cv2.putText(frame, f"{args.mode} | source frame {record['frame_id']} | {record['t_sec']:.3f}s",
+                                (20, 35), cv2.FONT_HERSHEY_SIMPLEX, .8, (255, 255, 255), 2)
+                    writer.write(frame)
                 if counts["processed_frames"] % 120 == 0:
                     print(f"Processed {counts['processed_frames']}/{len(frames)} source frames; disc frames {counts['disc_frames']}", flush=True)
-        writer.release()
+        if writer is not None:
+            writer.release()
         if sha256(source) != video["source_sha256"]:
             raise ValueError("Source changed during processing")
         if counts["processed_frames"] != len(frames):
@@ -188,18 +211,21 @@ def run(args):
         report = {"status": "complete", "source": str(source), "source_sha256": video["source_sha256"],
                   "video_id": video["id"], "model": args.model, "model_sha256": sha256(args.model),
                   "settings": settings, "toolchain": tools.version, "counts": counts, "processing_seconds": elapsed,
-                  "first_frame": frames[0], "last_frame": frames[-1], "video": str(output), "detections": str(result_path),
+                  "first_frame": frames[0], "last_frame": frames[-1], "render_review": render,
+                  "video": str(output) if render else None, "detections": str(result_path),
                   "limitations": ["Detection presence counts are not accuracy, throw counts or catch counts.",
                                   "No temporal track IDs or interpolated detections are produced.",
                                   "MP4 uses nominal playback FPS; JSONL retains real original-frame PTS.",
                                   "Detection JSONL is not the trajectory JSONL accepted by review-results."]}
         temp_report.write_text(json.dumps(report, indent=2, allow_nan=False), encoding="utf-8")
-        os.replace(temp_video, output)
+        if render:
+            os.replace(temp_video, output)
         os.replace(temp_results, result_path)
         os.replace(temp_report, report_path)
         return report
     finally:
-        writer.release()
+        if writer is not None:
+            writer.release()
         for path in (temp_video, temp_results, temp_report):
             if path.is_file():
                 path.unlink()
@@ -217,15 +243,18 @@ def main():
     parser.add_argument("--imgsz", type=int)
     parser.add_argument("--disc-grid", type=int, choices=(0, 2, 3))
     parser.add_argument("--tile-imgsz", type=int, default=960)
+    parser.add_argument("--tile-batch-size", type=int, default=1,
+                        help="Maximum same-shaped tile crops per inference call (default: 1)")
     parser.add_argument("--overlap", type=float, default=.2)
     parser.add_argument("--start", type=float, default=0.)
     parser.add_argument("--end", type=float)
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--ffmpeg-dir", type=Path)
+    parser.add_argument("--no-review", action="store_true", help="Write detection data without an annotated review video")
     args = parser.parse_args()
-    if args.cpu_threads < 1 or args.tile_imgsz < 32 or args.imgsz is not None and args.imgsz < 32:
-        parser.error("CPU threads must be positive and image sizes at least 32")
+    if args.cpu_threads < 1 or args.tile_batch_size < 1 or args.tile_imgsz < 32 or args.imgsz is not None and args.imgsz < 32:
+        parser.error("CPU threads and tile batch size must be positive and image sizes at least 32")
     try:
         result = run(args)
         print(json.dumps({key: result[key] for key in ("status", "counts", "processing_seconds", "video", "detections", "settings")}, indent=2))

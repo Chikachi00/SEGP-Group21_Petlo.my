@@ -116,7 +116,8 @@ class ProcessControl:
         except psutil.NoSuchProcess:
             pass
 
-    def command(self, args, *, cwd, stdout, timeout):
+    def command(self, args, *, cwd, stdout, timeout, on_progress=None):
+        """Run an owned process; a new reported stage resets its active timeout."""
         self.checkpoint()
         process = subprocess.Popen([str(arg) for arg in args], cwd=cwd, shell=False,
                                    stdout=stdout, stderr=subprocess.STDOUT)
@@ -127,6 +128,8 @@ class ProcessControl:
             while True:
                 self.checkpoint()
                 tick = time.monotonic()
+                if on_progress is not None and on_progress():
+                    active_seconds = 0.0
                 code = process.poll()
                 if code is not None:
                     if code:
@@ -138,7 +141,12 @@ class ProcessControl:
                     pass
                 active_seconds += time.monotonic() - tick
                 if active_seconds > timeout:
-                    raise subprocess.TimeoutExpired(args, timeout)
+                    # A stage may finish/write progress during the last wait
+                    # slice. Drain it before deciding that the old stage expired.
+                    if on_progress is not None and on_progress():
+                        active_seconds = 0.0
+                    elif process.poll() is None:
+                        raise subprocess.TimeoutExpired(args, timeout)
         finally:
             with self.condition:
                 self._resume_tree()

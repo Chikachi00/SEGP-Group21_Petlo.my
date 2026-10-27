@@ -61,3 +61,25 @@ test("waiting deadline aborts an in-flight status request", async () => {
       }) }), { code: "POLL_TIMEOUT" });
   } finally { clearTimeout(keepAlive); }
 });
+
+test("hidden tabs suspend status requests and resume the same job when visible", async () => {
+  const previousDocument = globalThis.document;
+  const visibility = new EventTarget();
+  visibility.visibilityState = "hidden";
+  globalThis.document = visibility;
+  let calls = 0;
+  try {
+    const polling = pollAnalysisJob("job-1", { signal: new AbortController().signal,
+      readJob: async id => { assert.equal(id, "job-1"); calls++; return job("completed"); },
+    });
+    await Promise.resolve();
+    assert.equal(calls, 0);
+    visibility.visibilityState = "visible";
+    visibility.dispatchEvent(new Event("visibilitychange"));
+    assert.equal((await polling).status, "completed");
+    assert.equal(calls, 1);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});

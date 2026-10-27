@@ -182,6 +182,7 @@ See [the video workflow](docs/video-analysis-workflow.md) and [the detailed comm
 
 ## Further Documentation
 
+- [Performance improvements and validation](docs/performance.md)
 - [Project overview](docs/project-overview.md)
 - [Initial requirements](docs/requirements.md)
 - [Supervisor and client questions](docs/supervisor-questions.md)

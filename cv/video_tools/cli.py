@@ -20,6 +20,8 @@ def main(argv=None):
     prepare_parser.add_argument("--source", required=True, type=Path)
     prepare_parser.add_argument("--output", required=True, type=Path)
     prepare_parser.add_argument("--force", action="store_true")
+    prepare_parser.add_argument("--no-review-artifacts", action="store_true",
+                                help="Validate all source frames and save indexes without review JPEGs, sheets or HTML")
     inspect_parser = commands.add_parser("inspect-window", help="提取真实源帧和按需局部图")
     inspect_parser.add_argument("--pack", required=True, type=Path)
     inspect_parser.add_argument("--video-id", required=True)
@@ -51,9 +53,11 @@ def main(argv=None):
             raise ValueError("资料包输出不能位于只读同步 sources/ 目录中。")
         if args.command == "prepare":
             from .prepare import prepare
-            report = prepare(args.source, args.output, tools, force=args.force)
-            from .guide import write_guides
-            write_guides(args.output, report)
+            report = prepare(args.source, args.output, tools, force=args.force,
+                             review_artifacts=not args.no_review_artifacts)
+            if not args.no_review_artifacts:
+                from .guide import write_guides
+                write_guides(args.output, report)
             completed = [video for video in report["videos"] if video["status"] == "complete"]
             print(json.dumps({"manifest": str((args.output / "manifest.json").resolve()),
                               "complete": len(completed), "failed": len(report["videos"]) - len(completed),

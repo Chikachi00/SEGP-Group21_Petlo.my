@@ -1,16 +1,18 @@
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useSessionHistory } from "../hooks/useSessionData.ts";
+import { useMemo } from "react";
 
 export default function LiveHistoryPage() {
   const { sessions, error, loading, refresh } = useSessionHistory();
-  const completed = sessions.filter(s => s.status === "completed").reverse();
-  const data = completed.map(session => ({ date: new Date(session.date).toLocaleString(),
-    ratio: session.statistics?.in_air_catch_candidate_rate == null ? null : session.statistics.in_air_catch_candidate_rate * 100 }));
+  const data = useMemo(() => sessions.filter(session => session.status === "completed").reverse().map(session => ({
+    date: new Date(session.date).toLocaleString(),
+    ratio: session.statistics?.in_air_catch_candidate_rate == null ? null : session.statistics.in_air_catch_candidate_rate * 100,
+  })), [sessions]);
   return <section className="page"><header className="page-header"><div><h1>Historical Trend</h1><p>Air-catch candidate rate across completed sessions; uncertain events are excluded from its denominator.</p></div></header>
     <button type="button" disabled={loading} onClick={refresh}>Refresh history</button>
     {loading && <p role="status">Loading history…</p>}
     {error && <p role="alert">{error.message}</p>}
-    {!loading && !error && completed.length === 0 && <p>No completed analyses yet.</p>}
+    {!loading && !error && data.length === 0 && <p>No completed analyses yet.</p>}
     <div className="panel chart-panel"><h2>Air-catch candidate rate</h2><div className="chart-frame"><ResponsiveContainer width="100%" height="100%">
       <LineChart data={data}><XAxis dataKey="date" minTickGap={32} /><YAxis domain={[0, 100]} unit="%" /><Tooltip />
         <Line dataKey="ratio" name="Air-catch candidate rate" stroke="#7c83c4" connectNulls={false} />

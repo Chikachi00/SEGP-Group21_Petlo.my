@@ -1,6 +1,6 @@
 # Petlo local backend integration
 
-This is a working loopback-only, single-user development service wrapping the unchanged `cv/` prototype. It implements the v1 session/video/job/results flow, SQLite persistence, an additive MySQL schema mapping, fixed-camera analysis and source-time video playback. Public authentication, production scheduling/storage and independent recognition accuracy evaluation remain separate work.
+This is a working loopback-only, single-user development service wrapping the `cv/` prototype. It implements the v1 session/video/job/results flow, SQLite persistence, an additive MySQL schema mapping, fixed-camera analysis and source-time video playback. API jobs use data-only CV stages in one isolated worker process; standalone CV commands retain their full review outputs. Public authentication, production scheduling/storage and independent recognition accuracy evaluation remain separate work.
 
 ## Start locally (two terminals)
 
@@ -32,7 +32,7 @@ The frontend example sets `VITE_USE_API=true` and `VITE_API_BASE_URL=http://loca
 - `db.py`: mappings for the existing `user_login`, `dogs`, `video` tables plus four result/job `analysis_*` tables and the additive `analysis_session_preferences` table. It does not change `database/petlo.sql` or use compulsory uncalibrated distance/height values.
 - `main.py`, `schemas.py`: local HTTP routes, ownership checks, request schemas, multipart upload limits, structured errors, CORS, and Range-capable MP4 playback.
 - `jobs.py`: a single background inference executor, durable job records, atomic result saving and explicit interrupted-job failures on restart.
-- `pipeline.py`: isolated per-job inputs, safe subprocess argument lists, original CV commands, original verified evidence previews and a separate source-time H.264 browser preview.
+- `pipeline.py`, `analysis_worker.py`: isolated per-job inputs and one controllable subprocess that reuses the model, runs data-only CV stages, and creates source-time H.264 browser playback. Per-job `runtime.json` records the selected device and settings; `timings.json` records stage durations.
 - `smoke.py`: actual API/database/CV/media verification on an isolated input; `db_init.py` initializes or prints schema.
 
 Default runtime paths are ignored by Git: `backend/data/petlo.sqlite3`, `outputs/backend-storage/`, `backend/.env`, `.env.local`. Each job keeps copied input, FFmpeg packet, detector/tracker/event outputs, provenance and a `pipeline.log`. Original videos are only read. Repeated analysis produces a new job/output folder and never overwrites earlier analysis artifacts. Per-view metadata uses real fractional duration and orientation-normalized dimensions.
@@ -51,7 +51,9 @@ Import the original `database/petlo.sql` into a local MySQL database and ensure 
 
 `sample_pair` accepts only the two original matching sample source hashes, one front and one side. The adapter copies verified content to the canonical IDs expected by the existing fusion script. Unknown pairs return 422 before queueing. The original ordinal pairing and provenance validation stay in place. Arbitrary paired recordings are not supported by this mode.
 
-Evidence previews preserve every source frame in the original tool's verified CFR format, used only by the analysis/review stages. Browser playback uses a separate H.264 file with relative original timestamps (`setpts=PTS-STARTPTS`, no frame-rate filter). Event jumps select the matching video's source interval; there is no shared front/side time axis. Missing rates stay null, predictions do not become observations, and ground pickups remain separate from airborne catches.
+API analysis preserves every indexed source frame and its timestamp while skipping offline review MP4s, JPEG sheets, contact galleries and HTML. It still decodes source crops used for identity evidence. Browser playback uses H.264 with relative original timestamps (`setpts=PTS-STARTPTS`, no frame-rate filter). Event jumps select the matching video's source interval; there is no shared front/side time axis. Missing rates stay null, predictions do not become observations, and ground pickups remain separate from airborne catches.
+
+`PETLO_DEVICE=auto` selects CUDA when available and otherwise uses CPU. Set it to `cpu` or a CUDA device index such as `0` to select explicitly. An explicitly requested unavailable CUDA device fails the job rather than silently changing devices. `PETLO_CPU_THREADS=8` and `PETLO_TILE_BATCH_SIZE=4` control CPU threading and same-sized detection crop batches; use batch size `1` for sequential crop inference. Detection resolution, confidence thresholds and source-frame coverage are unchanged. CPU/GPU floating-point results can differ slightly. Restart the backend after changing settings.
 
 ## Checks
 
