@@ -38,7 +38,7 @@ class CreateDog(BaseModel):
 class StartAnalysis(BaseModel):
     model_config = ConfigDict(extra='forbid')
     video_ids: list[str] = Field(min_length=1, max_length=2)
-    mode: Literal['single_view', 'sample_pair']
+    mode: Literal['single_view', 'sample_pair', 'paired_views']
 
     @field_validator('video_ids')
     @classmethod

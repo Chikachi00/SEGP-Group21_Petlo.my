@@ -6,6 +6,7 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from cv.fuse_two_views import run as fuse_two_views, FusionSettings
 
 from .config import ROOT
 
@@ -53,9 +54,10 @@ def inside(root, key):
 def validate_selection(mode, videos):
     if mode == 'single_view' and len(videos) == 1:
         return
-    if mode != 'sample_pair' or len(videos) != 2 or {v['camera_perspective'] for v in videos} != {'front', 'side'}:
-        raise ValueError('Choose one video, or the matching front and side samples')
-    if any(v['source_sha256'] != SAMPLES[v['camera_perspective']][1] for v in videos):
+    if mode not in ('sample_pair', 'paired_views') or len(videos) != 2 \
+            or {v['camera_perspective'] for v in videos} != {'front', 'side'}:
+        raise ValueError('Choose one video, or one front and one side video')
+    if mode == 'sample_pair' and any(v['source_sha256'] != SAMPLES[v['camera_perspective']][1] for v in videos):
         raise ValueError('Sample-pair fusion supports only the original matching sample contents')
 
 
@@ -233,15 +235,21 @@ class PipelineRunner:
                         'conflict': False, 'source_intervals': [{'video_id': key, 'start_sec': interval[0], 'end_sec': interval[1]}]})
                     single_rows.append({'sample_throw_id': event_id, 'outcome': row['predicted_outcome'],
                                         f'{view}_source_time_sec': interval, f'{view}_outcome': row['predicted_outcome']})
-        if mode == 'sample_pair':
-            # No --labels argument: reviewed answers must never generate machine results.
-            stage('fusion', fuse_events, event_root)
-            fused = json.loads((event_root / 'fused-results.json').read_text(encoding='utf-8'))
+        if mode in ('sample_pair', 'paired_views'):
+            if mode == 'sample_pair':
+                # Legacy sample-only path, unchanged. No --labels: reviewed answers must never generate machine results.
+                stage('fusion', fuse_events, event_root)
+                fused = json.loads((event_root / 'fused-results.json').read_text(encoding='utf-8'))
+            else:
+                fused = stage('fusion', fuse_two_views, event_root / 'front-v1', event_root / 'side-v1', root / 'two-view')
+            ids = {v['camera_perspective']: v['video_id'] for v in videos}
             for row in fused['results']:
-                api_events.append({'event_id': f'{job_id}-{row["sample_throw_id"]}', 'category': bucket_outcome(row['outcome']),
-                    'conflict': row['conflict'], 'source_intervals': [
-                        {'video_id': v['video_id'], 'start_sec': row[f'{v["camera_perspective"]}_source_time_sec'][0],
-                         'end_sec': row[f'{v["camera_perspective"]}_source_time_sec'][1]} for v in videos]})
+                intervals = [{'video_id': ids[view], 'start_sec': row[f'{view}_source_time_sec'][0],
+                              'end_sec': row[f'{view}_source_time_sec'][1]}
+                             for view in ('front', 'side') if row.get(f'{view}_source_time_sec')]
+                api_events.append({'event_id': f'{job_id}-{row["sample_throw_id"]}',
+                                   'category': bucket_outcome(row['outcome']),
+                                   'conflict': row['conflict'], 'source_intervals': intervals})
         else:
             fused = {'schema_version': 1, 'algorithm': 'throw-events-v3 single-view adapter',
                      'source_sha256': {v['video_id']: v['source_sha256'] for v in videos}, 'results': single_rows}

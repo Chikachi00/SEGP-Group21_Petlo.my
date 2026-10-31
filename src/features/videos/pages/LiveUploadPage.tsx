@@ -18,7 +18,7 @@ export default function LiveUploadPage() {
   const [connecting, setConnecting] = useState(true);
   const [sessionName, setSessionName] = useState("");
   const [dogId, setDogId] = useState("");
-  const [mode, setMode] = useState<"single_view" | "sample_pair">("single_view");
+  const [mode, setMode] = useState<"single_view" | "sample_pair" | "paired_views">("single_view");
   const [perspective, setPerspective] = useState<CameraPerspective>("front");
   const [single, setSingle] = useState<File | null>(null);
   const [front, setFront] = useState<File | null>(null);
@@ -50,7 +50,7 @@ export default function LiveUploadPage() {
   useEffect(() => () => { controller.current?.abort(); dogController.current?.abort(); }, []);
 
   async function start() {
-    const selections: Array<{ file: File; camera_perspective: CameraPerspective }> = mode === "sample_pair"
+    const selections: Array<{ file: File; camera_perspective: CameraPerspective }> = mode !== "single_view"
       ? front && side ? [{ file: front, camera_perspective: "front" }, { file: side, camera_perspective: "side" }] : []
       : single ? [{ file: single, camera_perspective: perspective }] : [];
     if (!health || !dogId || selections.length === 0 || busy || controller.current) return;
@@ -81,7 +81,7 @@ export default function LiveUploadPage() {
     }
   }
 
-  const ready = Boolean(health && dogId && (mode === "sample_pair" ? front && side : single));
+  const ready = Boolean(health && dogId && (mode !== "single_view" ? front && side : single));
   return <section className="upload-page live-upload-form"><h1>Upload video</h1><p className="upload-subtitle">Choose a fixed-camera video. Follow the saved analysis task, then review its report.</p>
     <div className="upload-card">
       <p role="status">{connecting ? "Connecting to local backend…" : health ? `Backend connected · ${Math.floor(health.max_upload_bytes / 1048576)} MiB maximum per file` : "Backend unavailable. Start the local backend and retry."}</p>
@@ -90,7 +90,7 @@ export default function LiveUploadPage() {
         <legend className="sr-only">Video analysis settings</legend>
         <p><label>Session name (optional)<input maxLength={120} value={sessionName} placeholder="e.g. Wednesday training — Front view" onChange={event => setSessionName(event.target.value)} /></label></p>
         <p><label>Dog <select value={dogId} onChange={e => setDogId(e.target.value)}>{dogs.map(d => <option key={d.dog_id} value={d.dog_id}>{d.name} · {d.breed}</option>)}</select></label></p>
-        <p><label>Analysis mode <select value={mode} onChange={e => setMode(e.target.value as typeof mode)}><option value="single_view">Single fixed view</option><option value="sample_pair">Matching supplied sample pair</option></select></label></p>
+        <p><label>Analysis mode <select value={mode} onChange={e => setMode(e.target.value as typeof mode)}><option value="single_view">Single fixed view</option><option value="sample_pair">Matching supplied sample pair</option><option value="paired_views">Front + side pair (any matching session)</option></select></label></p>
         {mode === "single_view" ? <>
           <p><label>Perspective <select value={perspective} onChange={e => setPerspective(e.target.value as CameraPerspective)}><option value="front">Front</option><option value="side">Side</option></select></label></p>
           <label>Video <input type="file" accept="video/*,.mkv,.mov,.avi,.webm" onChange={e => setSingle(e.target.files?.[0] ?? null)} /></label>

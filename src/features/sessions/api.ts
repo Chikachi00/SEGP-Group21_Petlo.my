@@ -25,8 +25,8 @@ export function getSession(sessionId: string, signal?: AbortSignal): Promise<Ses
 }
 
 export function startAnalysis(sessionId: string, input: StartAnalysisRequest, signal?: AbortSignal): Promise<AnalysisJob> {
-  const expectedCount = input.mode === "sample_pair" ? 2 : 1;
-  if (!["single_view", "sample_pair"].includes(input.mode) || input.video_ids.length !== expectedCount ||
+  const expectedCount = input.mode === "single_view" ? 1 : 2;
+  if (!["single_view", "sample_pair", "paired_views"].includes(input.mode) || input.video_ids.length !== expectedCount ||
       input.video_ids.some(value => !value.trim()) || new Set(input.video_ids).size !== expectedCount) {
     throw new Error("Choose one video for single_view or two distinct videos for sample_pair.");
   }

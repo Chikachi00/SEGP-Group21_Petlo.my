@@ -61,7 +61,7 @@ export interface CreateSessionRequest {
 
 export interface StartAnalysisRequest {
   video_ids: string[];
-  mode: "single_view" | "sample_pair";
+  mode: "single_view" | "sample_pair" | "paired_views";
 }
 
 export interface AnalysisJob {

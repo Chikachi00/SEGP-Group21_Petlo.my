@@ -32,7 +32,7 @@ export default function LiveResultPage() {
     const abort = new AbortController(); retryController.current = abort;
     setStarting(true); setActionError("");
     try {
-      await startAnalysis(data.session_id, { mode: data.videos.length === 2 ? "sample_pair" : "single_view", video_ids: data.videos.map(v => v.video_id) }, abort.signal);
+      await startAnalysis(data.session_id, { mode: data.videos.length === 2 ? "paired_views" : "single_view", video_ids: data.videos.map(v => v.video_id) }, abort.signal);
       abort.signal.throwIfAborted();
       navigate(`/sessions/${encodeURIComponent(data.session_id)}/analysis`);
     } catch (error) { if (!abort.signal.aborted) setActionError(error instanceof Error ? error.message : String(error)); }
