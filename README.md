@@ -52,7 +52,30 @@ Before running the application locally, ensure you have:
 1. **Python 3.10+**
 2. **Node.js 18+** & npm
 3. **FFmpeg & ffprobe**: Installed on your system `PATH` or placed inside `tools/ffmpeg/`
-4. **YOLO Weights**: Place `yolo11n.pt` (or your configured YOLO weights) in the repository root
+4. **YOLO Weights**: Place `yolo11n.pt` in the repository root
+
+### Quick Guide: Preparing FFmpeg and YOLO Weights
+
+#### 1. Obtaining FFmpeg & ffprobe
+The pipeline requires `ffmpeg` and `ffprobe` for precise frame extraction and browser video playback:
+- **Option 1 (System-wide):** If installed globally via `winget` (`winget install Gyan.FFmpeg`) or package manager, it is detected automatically.
+- **Option 2 (Local folder - Recommended):** 
+  1. Download a portable Windows build from [gyan.dev/ffmpeg/builds](https://www.gyan.dev/ffmpeg/builds/) (e.g. `ffmpeg-release-essentials.zip`).
+  2. Extract `ffmpeg.exe` and `ffprobe.exe` from the `bin/` folder into a new folder named `tools/ffmpeg/` at the repository root:
+     ```text
+     SEGP-Group21_Petlo.my/
+     └── tools/
+         └── ffmpeg/
+             ├── ffmpeg.exe
+             └── ffprobe.exe
+     ```
+
+#### 2. Downloading YOLO Weights (`yolo11n.pt`)
+The computer vision pipeline uses pre-trained YOLO weights to detect dogs and frisbees. After activating your virtual environment (see Step 1 below), you can download the weights file directly into the repository root with one command:
+```powershell
+python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"
+```
+This saves `yolo11n.pt` directly into the project root folder.
 
 ---
 
