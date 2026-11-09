@@ -389,3 +389,134 @@
 .quick-view:hover,.quick-view:active{background:#f2f5f9;color:#10243a;transform:none;filter:none}
 @media(max-width:480px){.quick-drawer{padding:24px 18px}.session-actions{gap:5px}.preview-button{padding:5px 9px}}
 @media(prefers-reduced-motion:reduce){.quick-overlay,.quick-drawer,.quick-overlay.is-closing,.quick-overlay.is-closing .quick-drawer{animation:none}}
+
+
+/* =============================================================
+   Light theme: colour-only overrides. The original dark styles
+   above remain unchanged. No geometry/layout rules are altered.
+   ============================================================= */
+.theme-toggle{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;padding:0;border:1px solid rgba(186,206,226,.55);border-radius:50%;background:rgba(17,39,59,.66);color:#fff;font:25px/1 Georgia,serif;cursor:pointer}
+.theme-toggle:hover{filter:brightness(1.12)}
+.subpage-theme-toggle{position:fixed;right:215px;top:19px;z-index:100}
+.site~.subpage-theme-toggle{display:none}
+:root[data-theme="light"]{color:#142b49;background:#f3f6fb}
+:root[data-theme="light"] .site{background:radial-gradient(ellipse 65% 46% at 78% 27%,#dcecff 0%,#edf5ff 52%,transparent 100%),linear-gradient(130deg,#f8fbff 4%,#edf4fc 49%,#f4f8fd 100%);color:#142b49}
+:root[data-theme="light"] .topbar{background:rgba(255,255,255,.93);border-bottom-color:#dce5f1}
+:root[data-theme="light"] .brand,:root[data-theme="light"] .nav button{color:#102a4b}
+:root[data-theme="light"] .brand-divider{border-left-color:#9fb0c5}
+:root[data-theme="light"] .search-box{background:#f4f7fc;border-color:#cbd9ea;color:#183654}
+:root[data-theme="light"] .search-box input{color:#183654}
+:root[data-theme="light"] .search-box input::placeholder{color:#60758f}
+:root[data-theme="light"] .nav button.nav-active::after{background:#1268bb}
+:root[data-theme="light"] .header-upload,:root[data-theme="light"] .primary-button{background:linear-gradient(#166dcb,#095ab0);color:#fff;border-color:#095ab0;box-shadow:0 3px 8px #376caa30}
+:root[data-theme="light"] .eyebrow{color:#105bac}
+:root[data-theme="light"] .eyebrow span{background:#166fce}
+:root[data-theme="light"] .hero h1{color:#0c2a52;text-shadow:none}
+:root[data-theme="light"] .hero p{color:#244364}
+:root[data-theme="light"] .history-link{color:#0d58a7}
+:root[data-theme="light"] .hero .file-notice{color:#49637e}
+:root[data-theme="light"] .panel{background:linear-gradient(120deg,#ffffff,#f8fbff);border-color:#d2deed;box-shadow:0 12px 26px #23486b12;color:#142b49}
+:root[data-theme="light"] table{background:#fff}
+:root[data-theme="light"] th{background:#e7f0fa;color:#173657}
+:root[data-theme="light"] td{border-bottom-color:#e2eaf4;color:#173657}
+:root[data-theme="light"] .check-button,:root[data-theme="light"] .preview-button{color:#1158a2;border-color:#9db7d4;background:#fff}
+:root[data-theme="light"] .check-button:hover,:root[data-theme="light"] .preview-button:hover{color:#0c447e;background:#eaf2fc}
+:root[data-theme="light"] .no-results{color:#60758f}
+:root[data-theme="light"] .theme-toggle{background:#fff;color:#d68a0b;border-color:#c5d5e8}
+:root[data-theme="light"] .quick-drawer{background:#fff;color:#142b49;border-left-color:#cbd8e8}
+:root[data-theme="light"] .quick-header,:root[data-theme="light"] .quick-section{border-color:#dce5ef}
+:root[data-theme="light"] .quick-header p,:root[data-theme="light"] .quick-section p,:root[data-theme="light"] .quick-stat span,:root[data-theme="light"] .quick-events span{color:#526c86}
+:root[data-theme="light"] .quick-close{color:#173657;border-color:#a7bdd2}
+:root[data-theme="light"] .quick-stat,:root[data-theme="light"] .quick-events>div{background:#f0f5fc;border-color:#d4e0ed}
+:root[data-theme="light"] .quick-progress{background:#dbe6f2}
+:root[data-theme="light"] .quick-progress-fill{background:#136ec4}
+:root[data-theme="light"] .quick-view{background:#1567bb;color:#fff;border-color:#1567bb}
+:root[data-theme="light"] .quick-view:hover{background:#1567bb;color:#fff}
+:root[data-theme="light"] .history-page,:root[data-theme="light"] .result-page{background:linear-gradient(135deg,#f8fbff,#e7f1fc);color:#142b49}
+:root[data-theme="light"] .history-nav,:root[data-theme="light"] .result-nav{border-bottom-color:#d5e2ef}
+:root[data-theme="light"] .history-nav button,:root[data-theme="light"] .result-back{color:#142b49;border-color:#9bb4cc}
+:root[data-theme="light"] .result-back:hover{background:#e7f0fa}
+:root[data-theme="light"] .history-subtitle,:root[data-theme="light"] .result-subtitle,:root[data-theme="light"] .history-card p,:root[data-theme="light"] .result-card p,:root[data-theme="light"] .history-message{color:#526b85}
+:root[data-theme="light"] .history-card,:root[data-theme="light"] .result-card{background:#fff;border-color:#d2deed;box-shadow:0 12px 26px #23486b0a}
+:root[data-theme="light"] .history-label,:root[data-theme="light"] .result-label{color:#1266b9}
+:root[data-theme="light"] .result-event{background:#eaf3fd;color:#143959;border-color:#c5d9ed}
+:root[data-theme="light"] .result-event:hover{background:#d9ebfc;border-color:#95b6d6}
+:root[data-theme="light"] .result-event-number{background:#d1e5f8}
+:root[data-theme="light"] .modal{background:#fff;color:#142b49;border-color:#b8cce0}
+:root[data-theme="light"] .modal-close{color:#142b49}
+:root[data-theme="light"] .modal-backdrop .modal{background:#fff;border-left-color:#cbd8e8}
+/* Preserve the existing responsive breakpoints; only position the new button. */
+@media(max-width:800px){.subpage-theme-toggle{right:18px;top:78px}.topbar-inner>.theme-toggle{grid-column:2;grid-row:3;justify-self:end;margin-right:0}.topbar-inner>.nav{padding-right:46px}.topbar-inner>.header-upload{grid-column:2;grid-row:1}}
+@media(max-width:480px){.topbar-inner>.theme-toggle{margin-right:0}.subpage-theme-toggle{right:14px;top:90px}}
+
+/* Logo contrast: white in dark mode, navy in light mode. */
+.paw-logo { color: #fff; }
+:root[data-theme="light"] .paw-logo { color: #102a4b; }
+
+/* Light mode only: softly blend the existing hero photograph into the page.
+   No image, position, size, markup, or dark-mode style is changed. */
+:root[data-theme="light"] .hero-dog {
+  -webkit-mask-image: radial-gradient(ellipse 85% 87% at 59% 45%, #000 52%, transparent 100%);
+  mask-image: radial-gradient(ellipse 85% 87% at 59% 45%, #000 52%, transparent 100%);
+}
+
+/* Historical Trend chart: theme-only colors, preserving its chart data and geometry. */
+.history-page {
+  --history-grid: #ffffff20;
+  --history-axis: #dce5f0;
+  --history-line: #ffffff;
+}
+:root[data-theme="light"] .history-page {
+  --history-grid: #cbd5e1;
+  --history-axis: #475569;
+  --history-line: #1268b3;
+}
+:root[data-theme="light"] .history-page .recharts-default-tooltip {
+  background-color: #fff !important;
+  border-color: #d2deed !important;
+  color: #142b49 !important;
+}
+:root[data-theme="light"] .history-page .recharts-tooltip-label,
+:root[data-theme="light"] .history-page .recharts-tooltip-item { color: #142b49 !important; }
+
+
+/* Subpages: keep the theme button below Back to Dashboard (no overlap). */
+.subpage-theme-toggle { position: fixed; top: 90px; right: 35px; z-index: 100; }
+@media (max-width: 800px) {
+  .subpage-theme-toggle { top: 135px; right: 18px; }
+}
+@media (max-width: 480px) {
+  .subpage-theme-toggle { top: 145px; right: 14px; }
+}
+
+/* Unified one-second theme switch: crossfade whole-page snapshots.
+   Individual color transitions are suppressed ONLY during the switch,
+   preventing mismatched intermediate colors and gradient flashes. */
+:root.theme-transitioning *,
+:root.theme-transitioning *::before,
+:root.theme-transitioning *::after {
+  transition-property: none !important;
+}
+
+::view-transition-old(root) {
+  animation: 1s ease-in-out both theme-crossfade-out;
+}
+::view-transition-new(root) {
+  animation: 1s ease-in-out both theme-crossfade-in;
+}
+
+@keyframes theme-crossfade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes theme-crossfade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.01ms !important;
+  }
+}

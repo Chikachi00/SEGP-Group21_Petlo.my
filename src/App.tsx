@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Routes, Route, useNavigate } from 'react-router';
 import UploadPage from './pages/UploadPage';
 import HistoryPage from './pages/HistoryPage';
@@ -6,6 +7,12 @@ import ResultPage from './pages/ResultPage';
 import PawLogo from './components/PawLogo';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './index.css';
+
+type Theme = 'dark' | 'light';
+
+function ThemeButton({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
+  return <button type="button" className="theme-toggle" onClick={onToggleTheme} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} title={theme === 'dark' ? 'Light mode' : 'Dark mode'}>{theme === 'dark' ? '☀' : '☾'}</button>;
+}
 
 type Session = {
   id: string;
@@ -42,7 +49,7 @@ function TargetIcon() {
   return <svg viewBox="0 0 54 54" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="24" cy="30" r="18"/><circle cx="24" cy="30" r="10"/><path d="m24 30 21-21M36 9h9v9"/></svg>;
 }
 
-function Dashboard() {
+function Dashboard({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [sessions] = useState<Session[]>(initialSessions);
@@ -112,6 +119,7 @@ function Dashboard() {
         <button className="brand" onClick={() => goTo('Dashboard')} aria-label="Go to dashboard"><PawLogo/><span className="brand-divider"/><span>Disc Dog Tracker</span></button>
         <label className="search-box"><SearchIcon/><input value={query} onChange={(e) => setQuery(e.target.value)} type="search" placeholder="Search by serial number, date, or keyword..." aria-label="Search sessions" /></label>
         <nav className="nav" aria-label="Main navigation">{['Dashboard','Sessions','History'].map((item) => <button key={item} className={active === item ? 'nav-active' : ''} onClick={() => item === 'History' ? navigate('/history') : goTo(item)}>{item}</button>)}</nav>
+        <ThemeButton theme={theme} onToggleTheme={onToggleTheme} />
         <button className="header-upload" onClick={() => navigate('/upload')}><UploadIcon/> Upload Video</button>
       </div>
     </header>
@@ -140,7 +148,7 @@ function Dashboard() {
         </section>
         <div className="right-column">
           <section className="panel trend-panel" ref={trendRef} aria-labelledby="trend-title"><div className="panel-title-row"><TrendIcon/><div><h2 id="trend-title">Catch Rate Trend</h2><p>Your recent training performance</p></div></div>
-            <div className="chart-container"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chartData} margin={{ top: 10, right: 14, bottom: 0, left: -16 }}><defs><linearGradient id="catchGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a0cce8" stopOpacity={0.28}/><stop offset="100%" stopColor="#a0cce8" stopOpacity={0.05}/></linearGradient></defs><CartesianGrid stroke="#ffffff" strokeOpacity={0.12} vertical={false} strokeDasharray="3 3"/><XAxis dataKey="name" tick={{ fill:'#f1f5fc', fontSize: 13 }} axisLine={{ stroke:'#dfe8f4' }} tickLine={false} tickMargin={9}/><YAxis domain={[0,100]} ticks={[0,20,40,60,80,100]} tickFormatter={v=>`${v}%`} tick={{ fill:'#f1f5fc', fontSize: 13 }} axisLine={{ stroke:'#dfe8f4' }} tickLine={false}/><Tooltip formatter={(v) => [`${v}%`, 'Catch rate']} contentStyle={{background:'#132a43',color:'white',border:'1px solid #6a8199',borderRadius:8}}/><Area type="linear" dataKey="catchRate" stroke="#f4f8ff" strokeWidth={2.6} fill="url(#catchGradient)" dot={{r:5,fill:'#f4f8ff',stroke:'#f4f8ff'}} activeDot={{r:7}} /></AreaChart></ResponsiveContainer></div>
+            <div className="chart-container"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chartData} margin={{ top: 10, right: 14, bottom: 0, left: -16 }}><defs><linearGradient id="catchGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#a0cce8" stopOpacity={0.28}/><stop offset="100%" stopColor="#a0cce8" stopOpacity={0.05}/></linearGradient></defs><CartesianGrid stroke={theme === 'dark' ? "#ffffff" : "#8296af"} strokeOpacity={theme === 'dark' ? 0.12 : 0.24} vertical={false} strokeDasharray="3 3"/><XAxis dataKey="name" tick={{ fill: theme === 'dark' ? '#f1f5fc' : '#263e59', fontSize: 13 }} axisLine={{ stroke: theme === 'dark' ? '#dfe8f4' : '#9db0c5' }} tickLine={false} tickMargin={9}/><YAxis domain={[0,100]} ticks={[0,20,40,60,80,100]} tickFormatter={v=>`${v}%`} tick={{ fill: theme === 'dark' ? '#f1f5fc' : '#263e59', fontSize: 13 }} axisLine={{ stroke: theme === 'dark' ? '#dfe8f4' : '#9db0c5' }} tickLine={false}/><Tooltip formatter={(v) => [`${v}%`, 'Catch rate']} contentStyle={{background:theme === 'dark' ? '#132a43' : '#ffffff',color:theme === 'dark' ? 'white' : '#142d4b',border:'1px solid #6a8199',borderRadius:8}}/><Area type="linear" dataKey="catchRate" stroke={theme === 'dark' ? "#f4f8ff" : "#1268b3"} strokeWidth={2.6} fill="url(#catchGradient)" dot={{r:5,fill:theme === 'dark' ? '#f4f8ff' : '#1268b3',stroke:theme === 'dark' ? '#f4f8ff' : '#1268b3'}} activeDot={{r:7}} /></AreaChart></ResponsiveContainer></div>
           </section>
           <section className="panel insight-panel"><TargetIcon/><div><h3>Keep Improving</h3><p>Your catch rate {difference >= 0 ? 'increased' : 'decreased'} by {Math.abs(difference)} percentage points from your first to latest session.</p></div></section>
         </div>
@@ -169,12 +177,62 @@ function Dashboard() {
 }
 
 export default function App() {
+  const [theme, setTheme] = useState<Theme>(() => {
+    try { return localStorage.getItem('disc-dog-theme') === 'light' ? 'light' : 'dark'; }
+    catch { return 'dark'; }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem('disc-dog-theme', theme); } catch { /* Storage disabled */ }
+  }, [theme]);
+  // Capture both complete themes and crossfade the entire page as one image.
+  const themeTransitionRunning = useRef(false);
+  const onToggleTheme = () => {
+    if (themeTransitionRunning.current) return;
+
+    const nextTheme: Theme = theme === 'dark' ? 'light' : 'dark';
+    const applyTheme = () => {
+      flushSync(() => {
+        document.documentElement.dataset.theme = nextTheme;
+        setTheme(nextTheme);
+      });
+    };
+
+    const viewDocument = document as Document & {
+      startViewTransition?: (update: () => void) => { finished: Promise<void> };
+    };
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (!viewDocument.startViewTransition || reducedMotion) {
+      applyTheme();
+      return;
+    }
+
+    themeTransitionRunning.current = true;
+    document.documentElement.classList.add('theme-transitioning');
+    const cleanup = () => {
+      document.documentElement.classList.remove('theme-transitioning');
+      themeTransitionRunning.current = false;
+    };
+
+    try {
+      const transition = viewDocument.startViewTransition(applyTheme);
+      void transition.finished.then(cleanup, cleanup);
+    } catch {
+      cleanup();
+      applyTheme();
+    }
+  };
   return (
-    <Routes>
-      <Route path="/" element={<Dashboard />} />
-      <Route path="/upload" element={<UploadPage />} />
-      <Route path="/history" element={<HistoryPage />} />
-      <Route path="/result/:id" element={<ResultPage />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<Dashboard theme={theme} onToggleTheme={onToggleTheme} />} />
+        <Route path="/upload" element={<UploadPage />} />
+        <Route path="/history" element={<HistoryPage />} />
+        <Route path="/result/:id" element={<ResultPage />} />
+      </Routes>
+      {/* Subpages have a separate header; position their toggle beside Back to Dashboard. */}
+      <div className="subpage-theme-toggle"><ThemeButton theme={theme} onToggleTheme={onToggleTheme} /></div>
+    </>
   );
 }

@@ -1,10 +1,10 @@
-﻿
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   CartesianGrid, ResponsiveContainer
 } from "recharts";
+import PawLogo from "../components/PawLogo";
 
 interface HistoryItem {
   session_id: string;
@@ -44,7 +44,9 @@ export default function HistoryPage() {
   return (
     <main className="history-page">
       <nav className="history-nav">
-        <span>🐾 Disc Dog Tracker</span>
+        <h2>
+          <PawLogo /> Disc Dog Tracker
+        </h2>
         <button onClick={() => navigate("/")}>
           ← Back to Dashboard
         </button>
@@ -77,20 +79,20 @@ export default function HistoryPage() {
                   margin={{ top: 20, right: 25, bottom: 10, left: 0 }}
                 >
                   <CartesianGrid
-                    stroke="#ffffff20"
+                    stroke="var(--history-grid, #ffffff20)"
                     strokeDasharray="3 3"
                     vertical={false}
                   />
                   <XAxis
                     dataKey="date"
-                    stroke="#dce5f0"
+                    stroke="var(--history-axis, #dce5f0)"
                     tickLine={false}
                     axisLine={false}
                   />
                   <YAxis
                     domain={[0, 100]}
                     unit="%"
-                    stroke="#dce5f0"
+                    stroke="var(--history-axis, #dce5f0)"
                     tickLine={false}
                     axisLine={false}
                   />
@@ -99,9 +101,9 @@ export default function HistoryPage() {
                     type="monotone"
                     dataKey="ratio"
                     name="Catch rate"
-                    stroke="#ffffff"
+                    stroke="var(--history-line, #ffffff)"
                     strokeWidth={3}
-                    dot={{ fill: "#ffffff", r: 5 }}
+                    dot={{ fill: "var(--history-line, #ffffff)", r: 5 }}
                     activeDot={{ r: 7 }}
                   />
                 </LineChart>

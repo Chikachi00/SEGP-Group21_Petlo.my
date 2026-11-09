@@ -6,7 +6,7 @@ export default function PawLogo() {
       aria-label="Disc Dog Tracker paw logo"
       role="img"
     >
-      <g fill="white">
+      <g fill="currentColor">
         <ellipse cx="13" cy="17" rx="4.4" ry="6"
           transform="rotate(-25 13 17)" />
         <ellipse cx="24" cy="10.7" rx="4.3" ry="6.2"
@@ -27,4 +27,3 @@ export default function PawLogo() {
     </svg>
   );
 }
-
