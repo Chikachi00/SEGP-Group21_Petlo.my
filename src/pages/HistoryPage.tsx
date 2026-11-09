@@ -1,5 +1,10 @@
-﻿import { useEffect, useState } from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+﻿
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip,
+  CartesianGrid, ResponsiveContainer
+} from "recharts";
 
 interface HistoryItem {
   session_id: string;
@@ -10,12 +15,25 @@ interface HistoryItem {
 }
 
 export default function HistoryPage() {
+  const navigate = useNavigate();
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/mock/history.json") 
-      .then((res) => res.json())
-      .then((data) => setHistory(data));
+    fetch("/mock/history.json")
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load history");
+        return res.json();
+      })
+      .then((data) => {
+        if (!Array.isArray(data)) {
+          throw new Error("History data must be an array");
+        }
+        setHistory(data);
+      })
+      .catch(() => setError("Unable to load training history."))
+      .finally(() => setLoading(false));
   }, []);
 
   const chartData = history.map((h) => ({
@@ -24,20 +42,74 @@ export default function HistoryPage() {
   }));
 
   return (
-    <section className="page">
-      <header className="page-header"><div><h1>Historical Trend</h1><p>Catch rate across your training sessions.</p></div></header>
-      <div className="panel chart-panel">
-      <h2>Catch rate</h2>
-      <div className="chart-frame"><ResponsiveContainer width="100%" height="100%">
-      <LineChart data={chartData} margin={{ top: 16, right: 16, bottom: 8, left: 0 }}>
-        <XAxis dataKey="date" axisLine={false} tickLine={false} minTickGap={32} tick={{ fill: "#697386", fontSize: 12 }} />
-        <YAxis domain={[0, 100]} unit="%" axisLine={false} tickLine={false} width={48} tick={{ fill: "#697386", fontSize: 12 }} />
-        <Tooltip />
-        <Line type="linear" dataKey="ratio" name="Catch rate" stroke="#7c83c4" strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
-      </LineChart>
-      </ResponsiveContainer></div></div>
-    </section>
+    <main className="history-page">
+      <nav className="history-nav">
+        <span>🐾 Disc Dog Tracker</span>
+        <button onClick={() => navigate("/")}>
+          ← Back to Dashboard
+        </button>
+      </nav>
+
+      <div className="history-content">
+        <p className="history-label">TRAINING ANALYTICS</p>
+        <h1>Historical Trend</h1>
+        <p className="history-subtitle">
+          Track your catch rate and training progress over time.
+        </p>
+
+        <section className="history-card">
+          <h2>Catch Rate Trend</h2>
+          <p>Your recent training performance</p>
+
+          {loading ? (
+            <div className="history-message">Loading history...</div>
+          ) : error ? (
+            <div className="history-message">{error}</div>
+          ) : chartData.length === 0 ? (
+            <div className="history-message">
+              No training history available.
+            </div>
+          ) : (
+            <div className="history-chart">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={chartData}
+                  margin={{ top: 20, right: 25, bottom: 10, left: 0 }}
+                >
+                  <CartesianGrid
+                    stroke="#ffffff20"
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="date"
+                    stroke="#dce5f0"
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    unit="%"
+                    stroke="#dce5f0"
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip />
+                  <Line
+                    type="monotone"
+                    dataKey="ratio"
+                    name="Catch rate"
+                    stroke="#ffffff"
+                    strokeWidth={3}
+                    dot={{ fill: "#ffffff", r: 5 }}
+                    activeDot={{ r: 7 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </section>
+      </div>
+    </main>
   );
 }
-
-

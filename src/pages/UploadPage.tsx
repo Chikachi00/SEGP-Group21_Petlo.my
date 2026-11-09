@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import "./UploadPage.css";
+import PawLogo from "../components/PawLogo";
 
 type Status = "idle" | "uploading" | "analyzing" | "complete" | "cancelled";
 
 export default function UploadPage() {
   const navigate = useNavigate();
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const [file, setFile] = useState<File | null>(null);
-  const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<Status>("idle");
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
 
   const busy = status === "uploading" || status === "analyzing";
@@ -17,14 +20,14 @@ export default function UploadPage() {
     if (status !== "uploading") return;
 
     const timer = window.setInterval(() => {
-      setProgress((value) => Math.min(value + 2, 100));
-    }, 400);
+      setProgress((p) => Math.min(p + 2, 100));
+    }, 100);
 
     return () => window.clearInterval(timer);
   }, [status]);
 
   useEffect(() => {
-    if (status === "uploading" && progress === 100) {
+    if (status === "uploading" && progress >= 100) {
       setStatus("analyzing");
     }
   }, [status, progress]);
@@ -39,216 +42,241 @@ export default function UploadPage() {
     return () => window.clearTimeout(timer);
   }, [status]);
 
+  function chooseFile(selected?: File) {
+    if (!selected) return;
+
+    const extension = selected.name.split(".").pop()?.toLowerCase();
+    if (!["mp4", "mov", "webm"].includes(extension || "")) {
+      setError("Please select an MP4, MOV or WebM video.");
+      return;
+    }
+
+    setFile(selected);
+    setError("");
+    setProgress(0);
+    setStatus("idle");
+  }
+
   function startUpload() {
     if (!file) return;
+    setError("");
     setProgress(0);
     setStatus("uploading");
   }
 
+  function cancelUpload() {
+    setStatus("cancelled");
+    setProgress(0);
+  }
+
   const titles: Record<Status, string> = {
-    idle: "Ready to upload your video",
-    uploading: "Uploading your video…",
-    analyzing: "Analyzing your session…",
-    complete: "Your demo session is ready",
+    idle: "Upload your training video",
+    uploading: "Uploading your video...",
+    analyzing: "Analyzing your session...",
+    complete: "Your demo session is ready!",
     cancelled: "Upload cancelled",
   };
 
-  const messages: Record<Status, string> = {
-    idle: "Choose a training video to get started.",
-    uploading: "Please keep this page open while your video uploads.",
-    analyzing: "Demo: identifying throws and catches in your video.",
-    complete: "The waiting-page demo is complete.",
-    cancelled: "You can restart the demo or choose another video.",
+  const descriptions: Record<Status, string> = {
+    idle: "Choose a video to begin your training review.",
+    uploading: "Preparing your video for analysis.",
+    analyzing: "Simulating throw and catch recognition.",
+    complete: "Your frontend demo has finished successfully.",
+    cancelled: "Choose another video or try again.",
   };
 
-  const badges: Record<Status, string> = {
-    idle: "Ready",
-    uploading: "In progress",
-    analyzing: "In progress",
-    complete: "Complete",
-    cancelled: "Cancelled",
-  };
-
-  const stages: Record<Status, string> = {
-    idle: "Waiting for video",
-    uploading: "Uploading video",
-    analyzing: "Upload complete · Demo analysis",
-    complete: "Demo complete",
-    cancelled: "Demo stopped",
-  };
-
+  const steps = ["Upload Video", "Analyze Session", "View Results"];
   const activeStep =
-    status === "complete"
-      ? 3
-      : status === "analyzing"
-        ? 1
-        : status === "uploading"
-          ? 0
-          : -1;
+    status === "complete" ? 3 :
+    status === "analyzing" ? 1 :
+    status === "uploading" ? 0 : -1;
 
   return (
-    <section className="upload-page">
-      <div className="upload-breadcrumb">
-        <button type="button" onClick={() => navigate("/")}>
-          Video Management
+    <div className="upload-page">
+      <header className="upload-navbar">
+        
+        <button
+          className="upload-brand"
+          onClick={() => navigate("/")}
+        >
+          <PawLogo />
+          <span>Disc Dog Tracker</span>
         </button>
-        <span>/</span>
-        <span>Upload video</span>
-      </div>
 
-      <h1>Upload video</h1>
-      <p className="upload-subtitle">
-        Your next training session, ready for review.
-      </p>
 
-      <div className="upload-card">
-        <div className="upload-card-top">
-          <span className="upload-context">New training session</span>
-          <span className="upload-badge">{badges[status]}</span>
-        </div>
-
-        <div className="upload-center">
-          <div className="upload-icon">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              aria-hidden="true"
-            >
-              <path d="M12 16V3m-5 5 5-5 5 5M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
-            </svg>
-          </div>
-
-          <h2>{titles[status]}</h2>
-          <p aria-live="polite">{messages[status]}</p>
-        </div>
-
-        <div className="upload-file">
-          <span className="upload-file-icon" aria-hidden="true">
-            ▤
-          </span>
-          <div className="upload-file-details">
-            <div className="upload-filename">
-              {file ? file.name : "No video selected"}
-            </div>
-            <div className="upload-file-size">
-              {file
-                ? `${(file.size / 1024 / 1024).toFixed(1)} MB · Local preview only`
-                : "Choose a video below · Demo"}
-            </div>
-          </div>
-        </div>
-
-        <div className="upload-progress-label">
-          <span>{stages[status]}</span>
-          <strong>{progress}%</strong>
-        </div>
-
-        <div
-          className="upload-track"
-          role="progressbar"
-          aria-label="Demo upload progress"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={progress}
+        <button
+          className="upload-back"
+          onClick={() => navigate("/")}
         >
+          ← Back to Dashboard
+        </button>
+      </header>
+
+      <main className="upload-container">
+        <div className="upload-heading">
+          <span className="upload-eyebrow">
+            <span className="upload-accent-line" />
+            DISC DOG TRAINING ANALYTICS
+          </span>
+
+          <h1>Upload Training Video</h1>
+          <p>
+            Every great catch starts with a throw.
+            <br />
+            Review your training performance.
+          </p>
+        </div>
+
+        <section className="upload-new-card">
+          <div className="upload-card-header">
+            <span>NEW TRAINING SESSION</span>
+            <span className="upload-status">
+              <span className={`upload-status-dot ${status}`} />
+              {status === "idle" ? "Ready" :
+               status === "complete" ? "Complete" :
+               status === "cancelled" ? "Cancelled" :
+               "In Progress"}
+            </span>
+          </div>
+
           <div
-            className="upload-bar"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-
-        <div className="upload-steps">
-          {["Upload video", "Analyze session", "Ready to review"].map(
-            (label, index) => (
-              <div
-                key={label}
-                className={`upload-step ${
-                  index < activeStep
-                    ? "is-done"
-                    : index === activeStep
-                      ? "is-active"
-                      : ""
-                }`}
-              >
-                <span className="upload-dot">
-                  {index < activeStep ? "Done" : index + 1}
-                </span>
-                <span>{label}</span>
-              </div>
-            ),
-          )}
-        </div>
-
-        <div className="upload-footer">
-          <span className="upload-hint">
-            Longer videos may take a little more time.
-          </span>
-
-          {busy ? (
-            <button
-              className="upload-button"
-              type="button"
-              onClick={() => setStatus("cancelled")}
-            >
-              Cancel upload
-            </button>
-          ) : (
-            <button
-              className="upload-button upload-button-primary"
-              type="button"
-              disabled={!file}
-              onClick={startUpload}
-            >
-              {status === "cancelled"
-                ? "Try again"
-                : status === "complete"
-                  ? "Replay demo"
-                  : "Start demo upload"}
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="upload-demo">
-        <span>Interactive demo · No files are sent to a server.</span>
-        <label
-          className={`upload-choose ${busy ? "is-disabled" : ""}`}
-        >
-          Choose video
-          <input
-            type="file"
-            accept="video/*"
-            disabled={busy}
-            onChange={(event) => {
-              const selected = event.target.files?.[0];
-              if (!selected) return;
-
-              if (!selected.type.startsWith("video/")) {
-                setError("Please choose a video file.");
-                event.target.value = "";
-                return;
-              }
-
-              setError("");
-              setFile(selected);
-              setProgress(0);
-              setStatus("idle");
+            className={`upload-dropzone ${busy ? "is-busy" : ""}`}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (!busy) chooseFile(e.dataTransfer.files[0]);
             }}
-          />
-        </label>
-      </div>
+          >
+            <div className="upload-large-icon">
+              {status === "complete" ? "✓" :
+               status === "analyzing" ? "◌" : "↑"}
+            </div>
 
-      {error && (
-        <p className="upload-error" role="alert">
-          {error}
+            <h2>{titles[status]}</h2>
+            <p aria-live="polite">{descriptions[status]}</p>
+
+            {!busy && status !== "complete" && (
+              <button
+                className="upload-select-button"
+                onClick={() => inputRef.current?.click()}
+              >
+                Choose Video
+              </button>
+            )}
+
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".mp4,.mov,.webm,video/*"
+              hidden
+              disabled={busy}
+              onChange={(e) => {
+                chooseFile(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+
+            <span className="upload-format">
+              MP4, MOV, WebM · Frontend demonstration
+            </span>
+          </div>
+
+          {file && (
+            <div className="upload-selected-file">
+              <span className="upload-file-symbol">▣</span>
+              <div>
+                <strong>{file.name}</strong>
+                <small>
+                  {(file.size / 1024 / 1024).toFixed(1)} MB
+                  {" · "}Local file selected
+                </small>
+              </div>
+              <span className="upload-file-check">✓</span>
+            </div>
+          )}
+
+          {(status !== "idle" || file) && (
+            <div className="upload-progress-section">
+              <div className="upload-progress-heading">
+                <span>
+                  {status === "analyzing" ? "Demo analysis in progress" :
+                   status === "complete" ? "Demo complete" :
+                   status === "cancelled" ? "Demo cancelled" :
+                   "Simulated upload progress"}
+                </span>
+                <strong>{progress}%</strong>
+              </div>
+              <div
+                className="upload-progress-track"
+                role="progressbar"
+                aria-valuenow={progress}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Simulated upload progress"
+              >
+                <div
+                  className="upload-progress-fill"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="upload-step-list">
+            {steps.map((label, index) => {
+              const done = index < activeStep;
+              const current = index === activeStep;
+              return (
+                <div
+                  key={label}
+                  className={`upload-step ${done ? "done" : ""} ${current ? "current" : ""}`}
+                >
+                  <span className="upload-step-number">
+                    {done ? "✓" : index + 1}
+                  </span>
+                  <span>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="upload-actions">
+            {busy ? (
+              <button className="upload-cancel" onClick={cancelUpload}>
+                Cancel Demo
+              </button>
+            ) : status === "complete" ? (
+              <button
+                className="upload-main-button"
+                onClick={() => navigate("/result/s_001")}
+              >
+                View Demo Result →
+              </button>
+            ) : (
+              <button
+                className="upload-main-button"
+                disabled={!file}
+                onClick={startUpload}
+              >
+                {status === "cancelled"
+                  ? "Try Again"
+                  : "Start Demo Upload →"}
+              </button>
+            )}
+          </div>
+        </section>
+
+        {error && <p className="upload-error" role="alert">{error}</p>}
+
+        <p className="upload-disclaimer">
+          Interactive frontend demo only. No file is sent to a server,
+          and no real video analysis is performed.
         </p>
-      )}
 
-      <p className="upload-note">
-        Track every throw. Celebrate every catch.
-      </p>
-    </section>
+        <p className="upload-tagline">
+          Track every throw. Improve every catch.
+        </p>
+      </main>
+    </div>
   );
 }
