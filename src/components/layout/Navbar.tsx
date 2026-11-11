@@ -1,5 +1,6 @@
+
 import { NavLink } from "react-router";
-import PawLogo from "./PawLogo";
+import PawLogo from "../PawLogo";
 
 export default function Navbar() {
   return (
@@ -10,8 +11,12 @@ export default function Navbar() {
       </NavLink>
 
       <div className="nav-links">
-        <NavLink to="/">Video Management</NavLink>
-        <NavLink to="/history">Historical Trend</NavLink>
+        <NavLink to="/" end>
+          Video Management
+        </NavLink>
+        <NavLink to="/history">
+          Historical Trend
+        </NavLink>
       </div>
     </nav>
   );

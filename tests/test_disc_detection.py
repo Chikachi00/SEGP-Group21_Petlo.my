@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -62,6 +63,68 @@ class DiscDetectorContracts(unittest.TestCase):
         self.assertEqual(model.kwargs['conf'], .1)
         self.assertTrue(np.array_equal(frame, before))
 
+    def test_tile_batches_preserve_order_offsets_thresholds_and_class_filters(self):
+        class Model:
+            def __init__(self):
+                self.calls=[]
+
+            def predict(self, **kwargs):
+                self.calls.append(kwargs)
+                source=kwargs['source']
+                images=source if isinstance(source,list) else [source]
+                results=[]
+                for image in images:
+                    confidence=.6+int(image[0,0,0])/1000
+                    candidates=[box(29,confidence,[2,3,20,12]),box(16,.9,[25,20,45,40]),box(0,.8,[50,20,65,40])]
+                    results.append(SimpleNamespace(boxes=[b for b in candidates if int(b.cls[0]) in kwargs['classes']]))
+                return results
+
+        names={29:'frisbee',16:'dog',0:'person'}
+        for width,height in ((201,103),(73,131)):
+            frame=np.zeros((height,width,3),dtype=np.uint8)
+            frame[:,:,0]=np.arange(width,dtype=np.uint8)
+            before=frame.copy()
+            for grid in (2,3):
+                expected=detect_frame(Model(),frame,names,grid=grid,disc_confidence=.5)
+                for batch_size in (2,4,9):
+                    with self.subTest(width=width,height=height,grid=grid,batch_size=batch_size):
+                        model=Model()
+                        actual=detect_frame(model,frame,names,grid=grid,disc_confidence=.5,tile_batch_size=batch_size)
+                        self.assertEqual(actual,expected)
+                        tiles=crop_grid(width,height,grid)
+                        self.assertEqual(len(model.calls),1+(len(tiles)+batch_size-1)//batch_size)
+                        self.assertEqual(model.calls[0]['classes'],[29,16,0])
+                        for call in model.calls[1:]:
+                            self.assertEqual(call['classes'],[29])
+                            self.assertEqual(call['conf'],.5)
+                            self.assertEqual(call['imgsz'],960)
+                            if isinstance(call['source'],list):
+                                self.assertTrue(call['rect'])
+                                self.assertEqual(len({image.shape for image in call['source']}),1)
+                        self.assertTrue(np.array_equal(frame,before))
+
+    def test_unequal_tile_shapes_use_individual_rectangular_inference(self):
+        class Model:
+            def __init__(self):self.calls=[]
+            def predict(self, **kwargs):
+                self.calls.append(kwargs)
+                return [SimpleNamespace(boxes=[])]
+        model=Model()
+        with patch('cv.detect_disc_video.crop_grid',return_value=[(0,0,40,30),(40,0,90,40)]):
+            detect_frame(model,np.zeros((100,100,3),dtype=np.uint8),{29:'frisbee'},tile_batch_size=4)
+        self.assertEqual(len(model.calls),3)
+        self.assertTrue(all(isinstance(call['source'],np.ndarray) for call in model.calls))
+
+    def test_invalid_batch_size_and_incomplete_batch_predictions_are_rejected(self):
+        class Model:
+            def predict(self, **kwargs):return [SimpleNamespace(boxes=[])]
+        frame=np.zeros((100,100,3),dtype=np.uint8)
+        for batch_size in (0,-1,True,1.5):
+            with self.subTest(batch_size=batch_size),self.assertRaisesRegex(ValueError,'positive integer'):
+                detect_frame(Model(),frame,{29:'frisbee'},tile_batch_size=batch_size)
+        with self.assertRaisesRegex(RuntimeError,'prediction count'):
+            detect_frame(Model(),frame,{29:'frisbee'},tile_batch_size=4)
+
 
 class OriginalBGRContracts(unittest.TestCase):
     def test_bgr_stream_selects_real_vfr_pts_without_inserted_frames(self):
@@ -82,6 +145,14 @@ class OriginalBGRContracts(unittest.TestCase):
             self.assertEqual([r['t_sec'] for r, frame in decoded], [.1, .9])
             self.assertTrue(all(frame.shape == (64, 96, 3) for r, frame in decoded))
             self.assertFalse(np.array_equal(decoded[0][1], decoded[1][1]))
+            readonly=list(iter_source_frames(source,[index[1],index[3]],metadata,tools,mutable=False))
+            self.assertEqual([record for record,frame in readonly],[record for record,frame in decoded])
+            # Compare after exhausting the generator: retained byte-backed frames
+            # must keep their own pixels when the next source frame is read.
+            for (record,frame),(readonly_record,readonly_frame) in zip(decoded,readonly):
+                self.assertTrue(frame.flags.writeable)
+                self.assertFalse(readonly_frame.flags.writeable)
+                self.assertTrue(np.array_equal(frame,readonly_frame))
 
 
 if __name__ == '__main__':

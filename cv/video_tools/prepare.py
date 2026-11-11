@@ -210,6 +210,12 @@ def _cached_video(destination: Path, key: str, root: Path) -> dict | None:
                     or motion["t_sec"] != frame["t_sec"] or not math.isfinite(motion["motion_score"])
                     or not 0 <= motion["motion_score"] <= 1):
                 return None
+        if not record.get("parameters", {}).get("review_artifacts", True):
+            if (loaded["image_index"] or loaded["candidates"] or record.get("overview_frame_ids") != []
+                    or any(record.get(name) != 0 for name in ("candidate_count", "images_count", "overview_count"))
+                    or record["paths"]["overview"] is not None):
+                return None
+            return record
         if not loaded["image_index"]:
             return None
         image_ids = set()
@@ -255,11 +261,12 @@ def _cached_video(destination: Path, key: str, root: Path) -> dict | None:
         return None
 
 
-def _prepare_one(source: Path, root: Path, tools: Toolchain, force: bool) -> dict:
+def _prepare_one(source: Path, root: Path, tools: Toolchain, force: bool, review_artifacts: bool = True) -> dict:
     video_id = source.stem
     role, camera, overview_count = _classify(source)
     source_hash = _sha256(source)
-    parameters = dict(PARAMETERS, role=role, camera=camera, overview_count=overview_count)
+    parameters = dict(PARAMETERS, role=role, camera=camera, overview_count=overview_count,
+                      review_artifacts=review_artifacts)
     key = hashlib.sha256(json.dumps({"source_sha256": source_hash, "parameters": parameters,
                                     "toolversions": tools.version}, sort_keys=True).encode()).hexdigest()
     destination = root / "videos" / video_id
@@ -288,44 +295,47 @@ def _prepare_one(source: Path, root: Path, tools: Toolchain, force: bool) -> dic
             entry[field] = metadata[field]
         entry["metadata"] = metadata
         entry["warnings"] = list(metadata["warnings"])
-        sparse = _sample_frames(frames, 0.0, frames[-1]["t_sec"], PARAMETERS["sparse_interval_sec"])
-        overview = _overview_frames(sparse, overview_count)
-        windows = _candidate_windows(frames, motion, role)
-        selected = {frame["frame_id"]: frame for frame in sparse}
-        window_membership = {}
-        for window in windows:
-            for frame in _sample_frames(frames, window["start_sec"], window["end_sec"],
-                                         1.0 / PARAMETERS["candidate_sample_fps"]):
-                selected[frame["frame_id"]] = frame
-                window_membership.setdefault(frame["frame_id"], []).append(window["id"])
-        images = extract_frames(source, selected.values(), staging / "images", tools, PARAMETERS["max_side"])
-        sparse_ids = {frame["frame_id"] for frame in sparse}
-        overview_ids = {frame["frame_id"] for frame in overview}
-        for image in images:
-            image["path"] = Path(image["path"]).relative_to(staging).as_posix()
-            image["kinds"] = (["sparse"] if image["frame_id"] in sparse_ids else [])
-            if image["frame_id"] in overview_ids:
-                image["kinds"].append("overview")
-            image["window_ids"] = window_membership.get(image["frame_id"], [])
-            if image["window_ids"]:
-                image["kinds"].append("candidate")
-            image["kind"] = "candidate" if image["window_ids"] else "overview" if image["frame_id"] in overview_ids else "sparse"
+        images, overview, windows = [], [], []
+        if review_artifacts:
+            sparse = _sample_frames(frames, 0.0, frames[-1]["t_sec"], PARAMETERS["sparse_interval_sec"])
+            overview = _overview_frames(sparse, overview_count)
+            windows = _candidate_windows(frames, motion, role)
+            selected = {frame["frame_id"]: frame for frame in sparse}
+            window_membership = {}
+            for window in windows:
+                for frame in _sample_frames(frames, window["start_sec"], window["end_sec"],
+                                             1.0 / PARAMETERS["candidate_sample_fps"]):
+                    selected[frame["frame_id"]] = frame
+                    window_membership.setdefault(frame["frame_id"], []).append(window["id"])
+            images = extract_frames(source, selected.values(), staging / "images", tools, PARAMETERS["max_side"])
+            sparse_ids = {frame["frame_id"] for frame in sparse}
+            overview_ids = {frame["frame_id"] for frame in overview}
+            for image in images:
+                image["path"] = Path(image["path"]).relative_to(staging).as_posix()
+                image["kinds"] = (["sparse"] if image["frame_id"] in sparse_ids else [])
+                if image["frame_id"] in overview_ids:
+                    image["kinds"].append("overview")
+                image["window_ids"] = window_membership.get(image["frame_id"], [])
+                if image["window_ids"]:
+                    image["kinds"].append("candidate")
+                image["kind"] = "candidate" if image["window_ids"] else "overview" if image["frame_id"] in overview_ids else "sparse"
         _write_json(staging / "frame_index.json", frames)
         _write_json(staging / "motion_index.json", motion)
         _write_json(staging / "image_index.json", images)
         _write_json(staging / "candidate_windows.json", windows)
-        image_by_id = {image["frame_id"]: image for image in images}
-        _contact_sheet([(staging / image_by_id[frame["frame_id"]]["path"], f"{frame['t_sec']:.3f}s | frame {frame['frame_id']}")
-                        for frame in overview], staging / "overview.jpg", 3 if overview_count == 6 else 2)
+        if review_artifacts:
+            image_by_id = {image["frame_id"]: image for image in images}
+            _contact_sheet([(staging / image_by_id[frame["frame_id"]]["path"], f"{frame['t_sec']:.3f}s | frame {frame['frame_id']}")
+                            for frame in overview], staging / "overview.jpg", 3 if overview_count == 6 else 2)
         entry["overview_frame_ids"] = [frame["frame_id"] for frame in overview]
         entry["candidate_count"] = len(windows)
         entry["images_count"] = len(images)
         entry["overview_count"] = len(overview)
-        if len(overview) < overview_count:
+        if review_artifacts and len(overview) < overview_count:
             entry["warnings"].append("Too few source samples for the requested overview count.")
-        if role == "action" and not windows:
+        if review_artifacts and role == "action" and not windows:
             entry["warnings"].append("No measurable motion candidates; genuinely static frames remain valid.")
-        if camera == "handheld":
+        if review_artifacts and camera == "handheld":
             entry["warnings"].append("Motion scores include camera motion; candidate windows require visual review.")
         if windows:
             entry["warnings"].append("High motion windows are review suggestions and do not establish catches or other events.")
@@ -335,6 +345,8 @@ def _prepare_one(source: Path, root: Path, tools: Toolchain, force: bool) -> dic
                           (("frame_index", "frame_index.json"), ("motion_index", "motion_index.json"),
                            ("image_index", "image_index.json"), ("overview", "overview.jpg"),
                            ("candidates", "candidate_windows.json"))}
+        if not review_artifacts:
+            entry["paths"]["overview"] = None
         entry["status"] = "complete"
     except Exception as exc:
         entry["error"] = f"{type(exc).__name__}: {exc}"
@@ -350,11 +362,13 @@ def _prepare_one(source: Path, root: Path, tools: Toolchain, force: bool) -> dic
 
 
 def prepare(source_root: str | Path, output_root: str | Path, tools: Toolchain,
-            force: bool = False) -> dict[str, Any]:
+            force: bool = False, *, review_artifacts: bool = True) -> dict[str, Any]:
     """Prepare every immediate video child and atomically publish manifest.json.
 
     Outputs may never be created inside source_root. Individual decode failures
     are represented in the manifest and do not stop the other videos.
+    Disable review_artifacts for analysis-only packages: every source frame is
+    still decoded and timestamp-validated, without a second JPEG extraction pass.
     """
     source = Path(source_root).expanduser().resolve()
     root = Path(output_root).expanduser().resolve()
@@ -371,14 +385,14 @@ def prepare(source_root: str | Path, output_root: str | Path, tools: Toolchain,
         raise MediaError("Video filename stems must be unique to create unambiguous package IDs")
     root.mkdir(parents=True, exist_ok=True)
     (root / "videos").mkdir(exist_ok=True)
-    entries = [_prepare_one(path, root, tools, force) for path in videos]
+    entries = [_prepare_one(path, root, tools, force, review_artifacts) for path in videos]
     manifest = {"schema_version": SCHEMA_VERSION,
                 "toolchain": {"ffmpeg": tools.ffmpeg, "ffprobe": tools.ffprobe, "version": tools.version},
-                "source_root": str(source), "parameters": PARAMETERS, "videos": entries,
+                "source_root": str(source), "parameters": dict(PARAMETERS, review_artifacts=review_artifacts), "videos": entries,
                 "overview": None}
     combined = []
     for entry in entries:
-        if entry["status"] != "complete":
+        if entry["status"] != "complete" or not review_artifacts:
             continue
         directory = root / "videos" / entry["id"]
         images = json.loads((root / entry["paths"]["image_index"]).read_text(encoding="utf-8"))
@@ -392,5 +406,7 @@ def prepare(source_root: str | Path, output_root: str | Path, tools: Toolchain,
         _contact_sheet(combined, temporary_overview, 5)
         os.replace(temporary_overview, root / "overview.jpg")
         manifest["overview"] = "overview.jpg"
+    elif not review_artifacts and (root / "overview.jpg").exists():
+        _safe_remove(root / "overview.jpg", root)
     _write_json(root / "manifest.json", manifest)
     return manifest

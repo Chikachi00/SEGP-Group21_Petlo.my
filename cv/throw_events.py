@@ -153,18 +153,34 @@ def carry_evidence(sequence,contact,cfg):
     after=[p for p in sequence if contact[0]['t_sec']<=p['t_sec']<=contact[0]['t_sec']+cfg.post_contact_sec and p['dog_bbox'] is not None]
     for g in groups(after,lambda p:p['dog_id']==contact[0]['dog_id'] and p['dog_bbox'] is not None and p['dog_gap']<=cfg.near_dog_diagonals,cfg.observation_gap_sec,True):
         if len(g)<5 or g[-1]['t_sec']-g[0]['t_sec']<cfg.min_carry_sec-1e-9:continue
+        # Constant-time model-anchor counts and endpoints for every window.
+        # Preserve the earliest accepted (last_index, first_index) ordering.
+        anchor_counts=[0]
+        previous_anchors=[]
+        previous=None
+        for index,p in enumerate(g):
+            model=p['measurement_source'] in ('saved_detector','local_yolo')
+            anchor_counts.append(anchor_counts[-1]+model)
+            if model:previous=index
+            previous_anchors.append(previous)
+        next_anchors=[None]*len(g)
+        following=None
+        for index in range(len(g)-1,-1,-1):
+            if anchor_counts[index+1]>anchor_counts[index]:following=index
+            next_anchors[index]=following
         for last_index in range(4,len(g)):
             for first_index in range(last_index-3):
-                window=g[first_index:last_index+1]
-                if window[-1]['t_sec']-window[0]['t_sec']<cfg.min_carry_sec-1e-9:continue
-                anchors=[p for p in window if p['measurement_source'] in ('saved_detector','local_yolo')]
-                if len(anchors)<2 or anchors[-1]['t_sec']-anchors[0]['t_sec']<cfg.min_carry_sec*.5:continue
-                first,last=window[0],window[-1];scale=diagonal(last['dog_bbox'])
+                first,last=g[first_index],g[last_index]
+                if last['t_sec']-first['t_sec']<cfg.min_carry_sec-1e-9:continue
+                anchor_count=anchor_counts[last_index+1]-anchor_counts[first_index]
+                if anchor_count<2:continue
+                if g[previous_anchors[last_index]]['t_sec']-g[next_anchors[first_index]]['t_sec']<cfg.min_carry_sec*.5:continue
+                scale=diagonal(last['dog_bbox'])
                 disc_v=[b-a for a,b in zip(center(first['bbox']),center(last['bbox']))]
                 dog_v=[b-a for a,b in zip(center(first['dog_bbox']),center(last['dog_bbox']))]
                 if min(math.hypot(*disc_v),math.hypot(*dog_v))<.1*scale or math.dist(disc_v,dog_v)>.25*scale:continue
                 return {'start_frame':first['frame_id'],'end_frame':last['frame_id'],'start_sec':first['t_sec'],'end_sec':last['t_sec'],
-                        'dog_id':first['dog_id'],'observed_samples':len(window),'model_observed_samples':len(anchors),
+                        'dog_id':first['dog_id'],'observed_samples':last_index-first_index+1,'model_observed_samples':anchor_count,
                         'relative_displacement_px':math.dist(disc_v,dog_v),'mouth_localized':False}
     return None
 

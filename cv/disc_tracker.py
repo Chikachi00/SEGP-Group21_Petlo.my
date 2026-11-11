@@ -95,10 +95,11 @@ class DiscTracker:
                 a = previous['bbox']
                 aa = (a[2] - a[0]) * (a[3] - a[1])
                 intersection = max(0, min(a[2], b[2]) - max(a[0], b[0])) * max(0, min(a[3], b[3]) - max(a[1], b[1]))
-                extent = max(math.hypot(a[2]-a[0], a[3]-a[1]), math.hypot(b[2]-b[0], b[3]-b[1]))
-                if intersection / min(area, aa) >= .85 and math.dist(center(a), center(b)) <= .4 * extent:
-                    duplicate = True
-                    break
+                if intersection / min(area, aa) >= .85:
+                    extent = max(math.hypot(a[2]-a[0], a[3]-a[1]), math.hypot(b[2]-b[0], b[3]-b[1]))
+                    if math.dist(center(a), center(b)) <= .4 * extent:
+                        duplicate = True
+                        break
             if not duplicate:
                 kept.append(d)
         return kept, len(discs), len(discs) - len(kept)
@@ -132,16 +133,25 @@ class DiscTracker:
         return distance/gate + .05 * abs(math.log(area_ratio))
 
     def _associate(self, now, candidates):
-        costs = {(i, j): cost for i, t in enumerate(self.tracks) for j, d in enumerate(candidates)
-                 if (cost := self._cost(t, d, now)) is not None}
+        costs = {}
+        track_costs = [[] for _ in self.tracks]
+        candidate_costs = [[] for _ in candidates]
+        for i, track in enumerate(self.tracks):
+            for j, candidate in enumerate(candidates):
+                cost = self._cost(track, candidate, now)
+                if cost is not None:
+                    costs[i, j] = cost
+                    track_costs[i].append(cost)
+                    candidate_costs[j].append(cost)
         ambiguous_tracks, ambiguous_candidates = set(), set()
         # Refuse both row and column near-ties; never send one detection to two IDs.
-        for i in range(len(self.tracks)):
-            ranked = sorted(v for (ti, _), v in costs.items() if ti == i)
+        # Build each row/column once rather than rescan every gated pair for it.
+        for i, values in enumerate(track_costs):
+            ranked = sorted(values)
             if len(ranked) > 1 and ranked[1] - ranked[0] < self.settings.ambiguity_margin:
                 ambiguous_tracks.add(i)
-        for j in range(len(candidates)):
-            ranked = sorted(v for (_, dj), v in costs.items() if dj == j)
+        for j, values in enumerate(candidate_costs):
+            ranked = sorted(values)
             if len(ranked) > 1 and ranked[1] - ranked[0] < self.settings.ambiguity_margin:
                 ambiguous_candidates.add(j)
         matches, used = {}, set()

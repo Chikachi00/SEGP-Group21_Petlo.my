@@ -35,7 +35,9 @@ The FFmpeg packet stores real frame timestamps and supports browsing, crops, and
 | Two-angle fusion | Implemented for the matching, ordered front/side sample recordings only |
 | Session statistics | Candidate counts, in-air catch candidate rate, retrieval candidate rate, and uncertainty coverage |
 | Accuracy evaluation | Four user-reviewed side labels provide a sample diagnostic, not independent evaluation |
-| REST API, frontend, database, deployment | Not implemented |
+| REST API and frontend integration | Implemented in local single-user mode; real uploads, jobs, persistence and playback |
+| Database | SQLite development tested; additive MySQL mapping/migration supplied, live MySQL validation pending |
+| Deployment | Static frontend on Pages; public backend/authentication pending |
 | Physical distance and speed | Not implemented; camera calibration is required |
 
 Candidate statistics currently use classified candidate events as their denominator; uncertain events are reported separately and excluded. Ground pickups count as non-air catches for the in-air catch candidate rate and as retrieved for the retrieval candidate rate. These rates describe model candidates, not verified outcomes.
@@ -52,8 +54,22 @@ flowchart TB
     OT --> TA[Trajectory Analysis]
     TA --> ER[Event Recognition]
     ER --> ST[Statistics]
-    BE <--> DB[(PostgreSQL<br/>Sessions, Events, Statistics)]
+    BE <--> DB[(SQLite dev / MySQL<br/>Sessions, Events, Statistics)]
     BE <--> VS[(Video Storage)]
 ```
 
-This is a proposed system direction. The web interface, REST API, database, and deployment are not part of the current prototype. Multi-camera synchronization and reliable matching outside the supplied sample also remain future work.
+This is a proposed system direction. The web interface, REST API and development database now have a local integration implementation (see backend/README.md); the public backend deployment is still pending. Multi-camera synchronization and reliable matching outside the supplied sample also remain future work.
+
+## Implemented local integration
+
+`React Live pages → FastAPI → SQLAlchemy + local SQLite / configured MySQL`. Uploads are stored outside source code. A single background executor invokes the original source packet, detector, trackers, joint/event scripts and candidate-statistics adapter in isolated job directories. Original verified CFR evidence previews stay with CV review; a separate H.264 preview preserves relative source timestamps for API playback. The public Pages app only serves the static frontend. Local development is loopback-only; authentication and a remote worker/storage service remain required for public integration.
+
+### Local demo task and report flow
+
+`Upload → persisted session/current_job_id → /sessions/:id/analysis → saved report`. Status pages restore server-side identity after navigation/reload and only observe the existing task. A reconnect action resumes GET polling, never repeats the analysis POST. The saved list refreshes while it contains active work. Persisted job submission/completion timestamps drive elapsed time; status-query success is not a worker heartbeat. Report JSON and per-view event CSV preserve candidate semantics, unknown rates and independent source clocks. Startup scripts bind services to loopback and retain private runtime artifacts under ignored directories.
+
+### Session names and owned process control
+
+`analysis_session_preferences` adds optional display names and soft-delete timestamps keyed by the original session ID. Default queries exclude Trash; restoration exposes the same uploads/results. No source files are physically removed. Existing four analysis tables and legacy SQL remain unchanged; this is a fifth additive analysis table.
+
+Each queued job owns a ProcessControl instance. The API sends pause/resume/cancel requests to that instance; the worker publishes acknowledged state and uses psutil to suspend/resume or terminate only its subprocess tree. The API server stays responsive. Stage timeout accounting excludes pause time; completion/cancellation are synchronized before results are committed. Paused jobs retain RAM and occupy the single worker. State persists, but OS-process memory cannot be recovered after backend restart. No distributed worker or durable checkpoint recovery is claimed.

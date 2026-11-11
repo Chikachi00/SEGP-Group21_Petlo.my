@@ -73,10 +73,11 @@ def seed_profile(frame, box, tolerance):
 
 
 class RecoveryTracker:
-    def __init__(self,width,height,settings=None,recovery=None,model=None,names=None):
+    def __init__(self,width,height,settings=None,recovery=None,model=None,names=None,device='cpu'):
         self.base = DiscTracker(width,height,settings or DiscSettings())
         self.recovery = recovery or RecoverySettings()
         self.model,self.names = model,names
+        self.device = device
         self.anchors = {}
         self.histories = {}
         self.last_query = {}
@@ -156,7 +157,7 @@ class RecoveryTracker:
                 x1,y1,x2,y2=roi
                 classes=[i for i,name in self.names.items() if name.lower()=='frisbee']
                 prediction=self.model.predict(source=frame[y1:y2,x1:x2],imgsz=self.recovery.roi_imgsz,
-                    conf=self.base.settings.confidence,classes=classes,device='cpu',verbose=False)[0]
+                    conf=self.base.settings.confidence,classes=classes,device=self.device,verbose=False)[0]
                 compatible=[]
                 for d in convert_boxes(prediction,self.names,(self.base.width,self.base.height),(x1,y1),'local_yolo'):
                     d={'label':'disc','bbox':d.bbox,'confidence':d.confidence,'origin':'local_yolo','recovery_target_id':track.track_id}

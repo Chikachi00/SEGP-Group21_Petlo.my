@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
-import { Routes, Route, useNavigate } from 'react-router';
-import UploadPage from './pages/UploadPage';
-import HistoryPage from './pages/HistoryPage';
-import ResultPage from './pages/ResultPage';
-import PawLogo from './components/PawLogo';
+import { useNavigate } from 'react-router';
+import PawLogo from '../../../components/PawLogo';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import './index.css';
 
 type Theme = 'dark' | 'light';
 
@@ -49,7 +44,7 @@ function TargetIcon() {
   return <svg viewBox="0 0 54 54" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="24" cy="30" r="18"/><circle cx="24" cy="30" r="10"/><path d="m24 30 21-21M36 9h9v9"/></svg>;
 }
 
-function Dashboard({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
+export default function Dashboard({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [sessions] = useState<Session[]>(initialSessions);
@@ -131,7 +126,7 @@ function Dashboard({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () =
           <div className="eyebrow"><span/>DISC DOG TRAINING ANALYTICS</div>
           <h1 id="hero-title">Track Every Throw.<br/>Improve Every Catch.</h1>
           <p>Review your training sessions, measure catch rate, and<br className="desktop-break"/> visualize your progress over time.</p>
-          <div className="hero-actions"><button className="primary-button" onClick={() => navigate('/upload')}><span className="play-icon">▷</span>Upload Training Video</button><button className="history-link" onClick={() => goTo('History')}>View Session History <span>→</span></button></div>
+          <div className="hero-actions"><button className="primary-button" onClick={() => navigate('/upload')}><span className="play-icon">▶</span>Upload Training Video</button><button className="history-link" onClick={() => goTo('History')}>View Session History <span>→</span></button></div>
         </div>
       </section>
 
@@ -140,7 +135,7 @@ function Dashboard({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () =
           <h2 id="sessions-title">Training Sessions</h2><p className="panel-description">Review your training sessions, throw by throw.</p>
           <div className="table-scroll"><table><thead><tr><th>SERIAL NUMBER</th><th>DATE</th><th>THROWS</th><th>CATCHES</th><th>CATCH RATE</th><th>ACTION</th></tr></thead><tbody>
             {filtered.map((s) => <tr key={s.id}><td>{s.id}</td><td>{s.date}</td><td>{s.throws}</td><td>{s.catches}</td><td>{rate(s)}%</td><td><div className="session-actions">
-              <button className="check-button" onClick={() => navigate(`/result/${s.id}`)}>Check</button>
+              <button className="check-button" onClick={() => navigate(`/sessions/${s.id}`)}>Check</button>
               <button className="preview-button" onClick={(e) => openPreview(s, e.currentTarget)} aria-label={`Preview session ${s.id}`}>Preview</button>
             </div></td></tr>)}
             {filtered.length === 0 && <tr><td colSpan={6} className="no-results">No matching sessions found.</td></tr>}
@@ -170,69 +165,8 @@ function Dashboard({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () =
         <div className="quick-section"><h3>Event Timeline</h3><p>Demonstration event preview</p>
           {selected.id === 's_001' ? <div className="quick-events">{demoEvents.map((event) => <div key={event.time}><span>{event.time}</span><strong>{event.label}</strong></div>)}</div> : <p className="quick-empty">No event timestamps available for this demo session.</p>}
         </div>
-        <div className="quick-footer"><button type="button" className="quick-view" onClick={() => navigate(`/result/${selected.id}`)}>View Full Analysis →</button></div>
+        <div className="quick-footer"><button type="button" className="quick-view" onClick={() => navigate(`/sessions/${selected.id}`)}>View Full Analysis →</button></div>
       </aside>
     </div>}
   </div>;
-}
-
-export default function App() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    try { return localStorage.getItem('disc-dog-theme') === 'light' ? 'light' : 'dark'; }
-    catch { return 'dark'; }
-  });
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem('disc-dog-theme', theme); } catch { /* Storage disabled */ }
-  }, [theme]);
-  // Capture both complete themes and crossfade the entire page as one image.
-  const themeTransitionRunning = useRef(false);
-  const onToggleTheme = () => {
-    if (themeTransitionRunning.current) return;
-
-    const nextTheme: Theme = theme === 'dark' ? 'light' : 'dark';
-    const applyTheme = () => {
-      flushSync(() => {
-        document.documentElement.dataset.theme = nextTheme;
-        setTheme(nextTheme);
-      });
-    };
-
-    const viewDocument = document as Document & {
-      startViewTransition?: (update: () => void) => { finished: Promise<void> };
-    };
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-    if (!viewDocument.startViewTransition || reducedMotion) {
-      applyTheme();
-      return;
-    }
-
-    themeTransitionRunning.current = true;
-    document.documentElement.classList.add('theme-transitioning');
-    const cleanup = () => {
-      document.documentElement.classList.remove('theme-transitioning');
-      themeTransitionRunning.current = false;
-    };
-
-    try {
-      const transition = viewDocument.startViewTransition(applyTheme);
-      void transition.finished.then(cleanup, cleanup);
-    } catch {
-      cleanup();
-      applyTheme();
-    }
-  };
-  return (
-    <>
-      <Routes>
-        <Route path="/" element={<Dashboard theme={theme} onToggleTheme={onToggleTheme} />} />
-        <Route path="/upload" element={<UploadPage />} />
-        <Route path="/history" element={<HistoryPage />} />
-        <Route path="/result/:id" element={<ResultPage />} />
-      </Routes>
-      {/* Subpages have a separate header; position their toggle beside Back to Dashboard. */}
-      <div className="subpage-theme-toggle"><ThemeButton theme={theme} onToggleTheme={onToggleTheme} /></div>
-    </>
-  );
 }

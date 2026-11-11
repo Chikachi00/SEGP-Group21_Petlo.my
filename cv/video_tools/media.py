@@ -6,6 +6,7 @@ operations are explicit calls; video inputs are always opened read-only.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import json
 import math
 import os
@@ -41,6 +42,16 @@ def _run(arguments: list[str], *, timeout: int = 600) -> subprocess.CompletedPro
         details = result.stderr.decode("utf-8", "replace")[-12000:]
         raise MediaError(f"{Path(arguments[0]).name} exited {result.returncode}: {details.strip()}")
     return result
+
+
+@lru_cache(maxsize=16)
+def _tool_versions(binary, probe, binary_identity, probe_identity):
+    """Cache version probes while the selected executable files are unchanged."""
+    versions = []
+    for name, path in (("ffmpeg", binary), ("ffprobe", probe)):
+        result = _run([path, "-version"], timeout=20)
+        versions.append((name, result.stdout.decode("utf-8", "replace").splitlines()[0]))
+    return tuple(versions)
 
 
 @dataclass(frozen=True)
@@ -82,10 +93,11 @@ class Toolchain:
             probe = binary.parent / probe_name
             if not probe.is_file():
                 raise ToolchainError(f"Matching ffprobe is missing beside {binary}")
-        versions = {}
-        for name, path in (("ffmpeg", binary), ("ffprobe", probe)):
-            result = _run([str(path), "-version"], timeout=20)
-            versions[name] = result.stdout.decode("utf-8", "replace").splitlines()[0]
+        def identity(path):
+            info = path.stat()
+            return info.st_mtime_ns, info.st_ctime_ns, info.st_size
+
+        versions = dict(_tool_versions(str(binary), str(probe), identity(binary), identity(probe)))
         return cls(str(binary), str(probe), versions)
 
 
@@ -400,11 +412,12 @@ def extract_frames(source: str | Path, selected_frames: Iterable[dict[str, Any]]
     return records
 
 
-def iter_source_frames(source, frames, metadata, tools):
-    """Yield mutable original-size BGR frames, validating decoded IDs and PTS.
+def iter_source_frames(source, frames, metadata, tools, *, mutable=True):
+    """Yield original-size BGR frames, validating decoded IDs and PTS.
 
     Consume the generator completely before accepting a run. Selected frame
     records come from the complete source index, never an average-FPS clock.
+    Read-only consumers can retain the decoder bytes without a second frame copy.
     """
     import numpy as np
     path = _source_path(source)
@@ -436,7 +449,8 @@ def iter_source_frames(source, frames, metadata, tools):
             raw = _read_exact(process.stdout, width * height * 3)
             if len(raw) != width * height * 3:
                 raise MediaError(f"Decoder stopped before complete frame {record['frame_id']}")
-            yield record, np.frombuffer(raw, dtype=np.uint8).reshape(height, width, 3).copy()
+            frame = np.frombuffer(raw, dtype=np.uint8).reshape(height, width, 3)
+            yield record, frame.copy() if mutable else frame
         if process.stdout.read(1):
             raise MediaError("Decoder emitted more frames than requested")
         process.stdout.close()

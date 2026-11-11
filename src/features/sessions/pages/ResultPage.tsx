@@ -1,7 +1,7 @@
 
 import { useRef } from "react";
 import { useNavigate, useParams } from "react-router";
-import PawLogo from "../components/PawLogo";
+import PawLogo from "../../../components/PawLogo";
 
 const events = [
   { id: 1, time: 4, type: "Catch" },
@@ -31,7 +31,7 @@ export default function ResultPage() {
   };
 
   return (
-    <div className="result-page">
+    <section className="result-page">
       <header className="result-nav">
         <div className="result-brand">
           <PawLogo />
@@ -46,7 +46,7 @@ export default function ResultPage() {
         </button>
       </header>
 
-      <main className="result-content">
+      <div className="result-content">
         <div style={{ transform: "translateY(-60px)" }}>
           <p className="result-label">
             TRAINING ANALYTICS
@@ -82,6 +82,7 @@ export default function ResultPage() {
                     key={ev.id}
                     className="result-event"
                     onClick={() => jumpToEvent(ev.time)}
+                    aria-label={`Play event ${ev.id}: ${ev.type}`}
                   >
                     <span className="result-event-number">
                       {ev.id}
@@ -91,7 +92,10 @@ export default function ResultPage() {
                       {formatTime(ev.time)} · {ev.type}
                     </span>
 
-                    <span className="result-event-arrow">
+                    <span
+                      className="result-event-arrow"
+                      aria-hidden="true"
+                    >
                       ▶
                     </span>
                   </button>
@@ -100,7 +104,7 @@ export default function ResultPage() {
             </section>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </section>
   );
 }

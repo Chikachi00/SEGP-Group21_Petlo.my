@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import "./UploadPage.css";
-import PawLogo from "../components/PawLogo";
+import PawLogo from "../../../components/PawLogo";
 
 type Status = "idle" | "uploading" | "analyzing" | "complete" | "cancelled";
 

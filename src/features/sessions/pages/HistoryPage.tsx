@@ -1,10 +1,16 @@
-﻿import { useEffect, useState } from "react";
+
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip,
-  CartesianGrid, ResponsiveContainer
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ResponsiveContainer,
 } from "recharts";
-import PawLogo from "../components/PawLogo";
+import PawLogo from "../../../components/PawLogo";
 
 interface HistoryItem {
   session_id: string;
@@ -42,7 +48,7 @@ export default function HistoryPage() {
   }));
 
   return (
-    <main className="history-page">
+    <section className="history-page">
       <nav className="history-nav">
         <h2>
           <PawLogo /> Disc Dog Tracker
@@ -64,9 +70,13 @@ export default function HistoryPage() {
           <p>Your recent training performance</p>
 
           {loading ? (
-            <div className="history-message">Loading history...</div>
+            <div className="history-message">
+              Loading history...
+            </div>
           ) : error ? (
-            <div className="history-message">{error}</div>
+            <div className="history-message">
+              {error}
+            </div>
           ) : chartData.length === 0 ? (
             <div className="history-message">
               No training history available.
@@ -76,7 +86,12 @@ export default function HistoryPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
                   data={chartData}
-                  margin={{ top: 20, right: 25, bottom: 10, left: 0 }}
+                  margin={{
+                    top: 20,
+                    right: 25,
+                    bottom: 10,
+                    left: 0,
+                  }}
                 >
                   <CartesianGrid
                     stroke="var(--history-grid, #ffffff20)"
@@ -103,7 +118,10 @@ export default function HistoryPage() {
                     name="Catch rate"
                     stroke="var(--history-line, #ffffff)"
                     strokeWidth={3}
-                    dot={{ fill: "var(--history-line, #ffffff)", r: 5 }}
+                    dot={{
+                      fill: "var(--history-line, #ffffff)",
+                      r: 5,
+                    }}
                     activeDot={{ r: 7 }}
                   />
                 </LineChart>
@@ -112,6 +130,6 @@ export default function HistoryPage() {
           )}
         </section>
       </div>
-    </main>
+    </section>
   );
 }
