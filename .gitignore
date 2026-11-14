@@ -88,3 +88,8 @@ coverage/
 
 # Local UI screenshots and version history
 /screenshots/
+
+# Detector training data and runs
+data/training/
+data/dataset/
+runs/
