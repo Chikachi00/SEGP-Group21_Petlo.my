@@ -1,4 +1,5 @@
 from pathlib import Path
+import socket
 import tempfile
 import threading
 import time
@@ -12,6 +13,24 @@ from backend.db import Job, TrainingSession
 from backend.main import create_app
 from backend.pipeline import validate_selection
 from cv.build_throw_statistics import summarize
+
+
+def _loopback_available():
+    """Detect whether local loopback sockets are permitted (e.g. not blocked by an OS sandbox)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.2)
+            s.bind(('127.0.0.1', 0))
+            s.listen(1)
+            port = s.getsockname()[1]
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as c:
+                c.settimeout(0.2)
+                c.connect(('127.0.0.1', port))
+                conn, _ = s.accept()
+                conn.close()
+        return True
+    except (OSError, TimeoutError):
+        return False
 
 
 class TestRunner:
@@ -47,6 +66,7 @@ class TestRunner:
                 'metadata': {v['video_id']: self.probe(path) for v in videos}}
 
 
+@unittest.skipUnless(_loopback_available(), 'Local loopback sockets not permitted in this sandbox/environment')
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -57,6 +77,8 @@ class ApiTests(unittest.TestCase):
         self.temp.cleanup()
 
     def client(self, runner=None):
+        if not _loopback_available():
+            raise unittest.SkipTest('Local loopback sockets not permitted in this sandbox/environment')
         app = create_app(self.settings, runner or TestRunner(self.settings))
         return TestClient(app, client=('127.0.0.1', 50000))
 
