@@ -55,6 +55,22 @@ def crop_grid(width, height, grid=2, overlap=.2):
     return [(x, y, x + tile_w, y + tile_h) for y in ys for x in xs]
 
 
+def band_crop_grid(width, height, cols=4, y_range=(.15, .85), overlap=.2):
+    """Cover a horizontal activity band with equal-sized overlapping original-pixel crops."""
+    if type(cols) is not int or cols < 2 or cols > 6:
+        raise ValueError("Band columns must be an integer between 2 and 6")
+    if not math.isfinite(overlap) or not 0 <= overlap < .5:
+        raise ValueError("Overlap must be in [0, 0.5)")
+    y0_frac, y1_frac = y_range
+    if not (math.isfinite(y0_frac) and math.isfinite(y1_frac) and 0. <= y0_frac < y1_frac <= 1.):
+        raise ValueError("Band y_range must satisfy 0 <= y0 < y1 <= 1")
+    y1 = max(0, min(height - 1, round(height * y0_frac)))
+    y2 = max(y1 + 1, min(height, round(height * y1_frac)))
+    tile_w = min(width, math.ceil(width / (cols - (cols - 1) * overlap)))
+    xs = sorted({round(i * (width - tile_w) / (cols - 1)) for i in range(cols)})
+    return [(x, y1, x + tile_w, y2) for x in xs]
+
+
 def convert_boxes(result, names, frame_size, offset=(0, 0), origin="full"):
     width, height = frame_size
     values = []
@@ -70,47 +86,114 @@ def convert_boxes(result, names, frame_size, offset=(0, 0), origin="full"):
     return values
 
 
-def merge_discs(detections, iou=.5):
-    """Merge crop/full duplicates; retain distinct discs, including held discs."""
+def _merge_class_boxes(boxes, iou=.5, contain_ratio=.80):
+    if not boxes:
+        return []
+    rects = [[d.bbox[0], d.bbox[1], d.bbox[2] - d.bbox[0], d.bbox[3] - d.bbox[1]] for d in boxes]
+    indices = cv2.dnn.NMSBoxes(rects, [d.confidence for d in boxes], 0., iou)
+    survivors = sorted((boxes[int(i)] for i in np.asarray(indices).reshape(-1)),
+                       key=lambda d: (-d.confidence, tuple(d.bbox)))
+    kept = []
+    for cand in survivors:
+        cb = cand.bbox
+        c_area = (cb[2] - cb[0]) * (cb[3] - cb[1])
+        contained = False
+        for prev in kept:
+            pb = prev.bbox
+            p_area = (pb[2] - pb[0]) * (pb[3] - pb[1])
+            inter = max(0., min(pb[2], cb[2]) - max(pb[0], cb[0])) * max(0., min(pb[3], cb[3]) - max(pb[1], cb[1]))
+            min_area = min(c_area, p_area)
+            if min_area > 0 and inter / min_area >= contain_ratio:
+                contained = True
+                break
+        if not contained:
+            kept.append(cand)
+    return kept
+
+
+def merge_discs(detections, iou=.5, contain_ratio=.80):
+    """Merge crop/full duplicates and truncated tile-seam halves for discs (and tiled dogs)."""
     discs = [d for d in detections if d.label == "frisbee"]
-    others = [d for d in detections if d.label != "frisbee"]
-    if not discs:
-        return others
-    rects = [[d.bbox[0], d.bbox[1], d.bbox[2] - d.bbox[0], d.bbox[3] - d.bbox[1]] for d in discs]
-    indices = cv2.dnn.NMSBoxes(rects, [d.confidence for d in discs], 0., iou)
-    return others + [discs[int(i)] for i in np.asarray(indices).reshape(-1)]
+    dogs = [d for d in detections if d.label == "dog"]
+    others = [d for d in detections if d.label not in ("frisbee", "dog")]
+    merged_dogs = _merge_class_boxes(dogs, iou=iou, contain_ratio=contain_ratio) if any(d.origin == "tile" for d in dogs) else dogs
+    return others + merged_dogs + _merge_class_boxes(discs, iou=iou, contain_ratio=contain_ratio)
+
+
+def has_local_motion(frame, reference, bbox, *, diff_threshold=22, min_active_fraction=.12):
+    """Check whether pixels inside ``bbox`` changed significantly relative to ``reference``."""
+    if reference is None or frame.shape != reference.shape:
+        return False
+    height, width = frame.shape[:2]
+    x1 = max(0, min(width - 1, math.floor(bbox[0])))
+    y1 = max(0, min(height - 1, math.floor(bbox[1])))
+    x2 = max(x1 + 1, min(width, math.ceil(bbox[2])))
+    y2 = max(y1 + 1, min(height, math.ceil(bbox[3])))
+    if (x2 - x1) * (y2 - y1) < 4:
+        return False
+    cur_u8 = frame[y1:y2, x1:x2]
+    ref_u8 = reference[y1:y2, x1:x2]
+    if (x2 - x1) >= 3 and (y2 - y1) >= 3:
+        cur_u8 = cv2.blur(cur_u8, (3, 3))
+        ref_u8 = cv2.blur(ref_u8, (3, 3))
+    cur = cur_u8.astype(np.int16)
+    ref = ref_u8.astype(np.int16)
+    diff = np.max(np.abs(cur - ref), axis=2) if cur.ndim == 3 else np.abs(cur - ref)
+    return float((diff >= diff_threshold).mean()) >= min_active_fraction
 
 
 def detect_frame(model, frame, names, *, imgsz=1280, confidence=.25,
-                 disc_confidence=.25, grid=2, tile_imgsz=960, overlap=.2, device="cpu", tile_batch_size=1):
+                 disc_confidence=.25, grid=2, tile_imgsz=960, overlap=.2, device="cpu",
+                 tile_batch_size=1, disc_band=None, band_cols=4,
+                 motion_ref=None, motion_disc_confidence=None,
+                 motion_diff_threshold=22, motion_min_fraction=.12, tile_dog=None):
     if type(tile_batch_size) is not int or tile_batch_size < 1:
         raise ValueError("Tile batch size must be a positive integer")
+    use_motion = (motion_ref is not None and motion_disc_confidence is not None
+                  and 0. < motion_disc_confidence < disc_confidence)
+    infer_disc_conf = motion_disc_confidence if use_motion else disc_confidence
     height, width = frame.shape[:2]
     relevant = [k for k, name in names.items() if name.lower() in LABELS]
     disc_ids = [k for k, name in names.items() if name.lower() == "frisbee"]
+    dog_ids = [k for k, name in names.items() if name.lower() == "dog"]
     if not relevant or not disc_ids:
         raise ValueError("The model must expose the COCO frisbee class and relevant target classes")
-    predictions = model.predict(source=frame, imgsz=imgsz, conf=min(confidence, disc_confidence),
+    include_dog_in_tiles = (disc_band is not None) if tile_dog is None else bool(tile_dog)
+    tile_classes = (disc_ids + dog_ids) if (include_dog_in_tiles and dog_ids) else disc_ids
+    tile_conf = min(infer_disc_conf, confidence) if (include_dog_in_tiles and dog_ids) else infer_disc_conf
+    predictions = model.predict(source=frame, imgsz=imgsz, conf=min(confidence, infer_disc_conf),
                                 classes=relevant, device=device, verbose=False)[0]
     detections = convert_boxes(predictions, names, (width, height))
-    tiles = crop_grid(width, height, grid, overlap)
+    tiles = (band_crop_grid(width, height, band_cols, disc_band, overlap)
+             if disc_band is not None else crop_grid(width, height, grid, overlap))
     for start in range(0, len(tiles), tile_batch_size):
         bounds = tiles[start:start + tile_batch_size]
         crops = [frame[y1:y2, x1:x2] for x1, y1, x2, y2 in bounds]
         # Rectangular padding matches single-crop inference only for equal shapes.
         # Preserve crop order, offsets and individual inference for other shapes.
         if len(crops) > 1 and len({crop.shape for crop in crops}) == 1:
-            predictions = model.predict(source=crops, imgsz=tile_imgsz, conf=disc_confidence,
-                                        classes=disc_ids, device=device, verbose=False, rect=True)
+            predictions = model.predict(source=crops, imgsz=tile_imgsz, conf=tile_conf,
+                                        classes=tile_classes, device=device, verbose=False, rect=True)
         else:
-            predictions = [model.predict(source=crop, imgsz=tile_imgsz, conf=disc_confidence,
-                                         classes=disc_ids, device=device, verbose=False)[0] for crop in crops]
+            predictions = [model.predict(source=crop, imgsz=tile_imgsz, conf=tile_conf,
+                                         classes=tile_classes, device=device, verbose=False)[0] for crop in crops]
         if len(predictions) != len(bounds):
             raise RuntimeError("Tile prediction count differs from the crop batch")
         for result, (x1, y1, _, _) in zip(predictions, bounds):
             detections.extend(convert_boxes(result, names, (width, height), (x1, y1), "tile"))
-    detections = [d for d in detections if d.confidence >= (disc_confidence if d.label == "frisbee" else confidence)]
-    return merge_discs(detections) if grid else detections
+    filtered = []
+    for d in detections:
+        if d.label != "frisbee":
+            if d.confidence >= confidence:
+                filtered.append(d)
+        elif d.confidence >= disc_confidence:
+            filtered.append(d)
+        elif use_motion and d.confidence >= motion_disc_confidence and has_local_motion(
+            frame, motion_ref, d.bbox,
+            diff_threshold=motion_diff_threshold, min_active_fraction=motion_min_fraction
+        ):
+            filtered.append(Detection(d.bbox, d.confidence, d.label, f"{d.origin}_motion"))
+    return merge_discs(filtered) if tiles else filtered
 
 
 def load_source(pack, source, start=0., end=None):
@@ -150,12 +233,25 @@ def run(args, *, model=None, render=True):
         raise ValueError("Output cannot be inside synced sources/")
     sizes = args.imgsz or (640 if args.mode == "baseline" else 1280)
     grid = args.disc_grid if args.disc_grid is not None else (0 if args.mode == "baseline" else 2)
+    disc_band = getattr(args, "disc_band", None)
+    band_cols = getattr(args, "band_cols", 4)
+    motion_disc_conf = getattr(args, "motion_disc_confidence", None)
+    if motion_disc_conf is not None:
+        if not math.isfinite(motion_disc_conf) or not 0. < motion_disc_conf < args.disc_confidence:
+            raise ValueError("motion_disc_confidence must be in (0, disc_confidence)")
+        if video.get("camera") == "handheld":
+            raise ValueError("Motion-gated low-confidence disc detection requires a fixed tripod camera")
     settings = dict(imgsz=sizes, confidence=args.confidence, disc_confidence=args.disc_confidence,
                     grid=grid, tile_imgsz=args.tile_imgsz, overlap=args.overlap, device=args.device,
-                    tile_batch_size=getattr(args, 'tile_batch_size', 1))
+                    tile_batch_size=getattr(args, 'tile_batch_size', 1),
+                    disc_band=disc_band, band_cols=band_cols,
+                    motion_disc_confidence=motion_disc_conf)
     if type(settings['tile_batch_size']) is not int or settings['tile_batch_size'] < 1:
         raise ValueError("Tile batch size must be a positive integer")
-    crop_grid(video["width"], video["height"], grid, args.overlap)
+    if disc_band is not None:
+        band_crop_grid(video["width"], video["height"], band_cols, disc_band, args.overlap)
+    else:
+        crop_grid(video["width"], video["height"], grid, args.overlap)
     if not Path(args.model).is_file():
         raise ValueError("A local model weights file is required; this command does not download weights")
     if model is None:
@@ -181,10 +277,17 @@ def run(args, *, model=None, render=True):
             raise RuntimeError("Cannot create annotated output")
     counts = {"processed_frames": 0, "dog_frames": 0, "disc_frames": 0, "person_frames": 0}
     started = time.perf_counter()
+    prev_frames = []
     try:
         with temp_results.open("w", encoding="utf-8") as handle:
             for record, frame in iter_source_frames(source, frames, video["metadata"], tools, mutable=render):
-                detections = detect_frame(model, frame, names, **settings)
+                motion_ref = prev_frames[0] if (motion_disc_conf is not None and prev_frames) else None
+                raw_copy = frame.copy() if motion_disc_conf is not None else None
+                detections = detect_frame(model, frame, names, motion_ref=motion_ref, **settings)
+                if raw_copy is not None:
+                    prev_frames.append(raw_copy)
+                    if len(prev_frames) > 2:
+                        prev_frames.pop(0)
                 labels = {d.label for d in detections}
                 for key, label in (("dog_frames", "dog"), ("disc_frames", "frisbee"), ("person_frames", "person")):
                     counts[key] += label in labels
@@ -240,8 +343,14 @@ def main():
     parser.add_argument("--mode", choices=("baseline", "enhanced"), default="enhanced")
     parser.add_argument("--confidence", type=probability, default=.25)
     parser.add_argument("--disc-confidence", type=probability, default=.25)
+    parser.add_argument("--motion-disc-confidence", type=probability,
+                        help="Optional lower disc confidence (e.g. 0.10) accepted only with local pixel motion on fixed tripod cameras")
     parser.add_argument("--imgsz", type=int)
     parser.add_argument("--disc-grid", type=int, choices=(0, 2, 3))
+    parser.add_argument("--disc-band", type=lambda s: tuple(float(v) for v in s.split(",")),
+                        help="Optional horizontal activity band 'y0,y1' (e.g. 0.15,0.85) replacing full-frame grid tiles")
+    parser.add_argument("--band-cols", type=int, default=4,
+                        help="Number of horizontal tiles across --disc-band (default: 4)")
     parser.add_argument("--tile-imgsz", type=int, default=960)
     parser.add_argument("--tile-batch-size", type=int, default=1,
                         help="Maximum same-shaped tile crops per inference call (default: 1)")

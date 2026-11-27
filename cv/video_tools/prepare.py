@@ -261,9 +261,14 @@ def _cached_video(destination: Path, key: str, root: Path) -> dict | None:
         return None
 
 
-def _prepare_one(source: Path, root: Path, tools: Toolchain, force: bool, review_artifacts: bool = True) -> dict:
+def _prepare_one(source: Path, root: Path, tools: Toolchain, force: bool,
+                 review_artifacts: bool = True, camera_override: str | None = None) -> dict:
     video_id = source.stem
     role, camera, overview_count = _classify(source)
+    if camera_override is not None:
+        if camera_override not in ("tripod", "handheld"):
+            raise MediaError(f"Unsupported camera override: {camera_override}")
+        camera = camera_override
     source_hash = _sha256(source)
     parameters = dict(PARAMETERS, role=role, camera=camera, overview_count=overview_count,
                       review_artifacts=review_artifacts)
@@ -339,6 +344,17 @@ def _prepare_one(source: Path, root: Path, tools: Toolchain, force: bool, review
             entry["warnings"].append("Motion scores include camera motion; candidate windows require visual review.")
         if windows:
             entry["warnings"].append("High motion windows are review suggestions and do not establish catches or other events.")
+        # Flag prolonged static/frozen recordings (e.g. >= 5s of zero frame-to-frame difference).
+        frozen_start = None
+        for sample in motion:
+            if sample.get("score", 1.0) <= 1e-6:
+                if frozen_start is None:
+                    frozen_start = sample["t_sec"]
+                elif sample["t_sec"] - frozen_start >= 5.0:
+                    entry["warnings"].append("prolonged_frozen_frames_detected")
+                    break
+            else:
+                frozen_start = None
         if _sha256(source) != source_hash:
             raise MediaError("Source video changed while preparing; rerun against an unchanged source.")
         entry["paths"] = {name: _package_path(root, destination, filename) for name, filename in
@@ -362,7 +378,8 @@ def _prepare_one(source: Path, root: Path, tools: Toolchain, force: bool, review
 
 
 def prepare(source_root: str | Path, output_root: str | Path, tools: Toolchain,
-            force: bool = False, *, review_artifacts: bool = True) -> dict[str, Any]:
+            force: bool = False, *, review_artifacts: bool = True,
+            camera_override: str | None = None) -> dict[str, Any]:
     """Prepare every immediate video child and atomically publish manifest.json.
 
     Outputs may never be created inside source_root. Individual decode failures
@@ -385,7 +402,7 @@ def prepare(source_root: str | Path, output_root: str | Path, tools: Toolchain,
         raise MediaError("Video filename stems must be unique to create unambiguous package IDs")
     root.mkdir(parents=True, exist_ok=True)
     (root / "videos").mkdir(exist_ok=True)
-    entries = [_prepare_one(path, root, tools, force, review_artifacts) for path in videos]
+    entries = [_prepare_one(path, root, tools, force, review_artifacts, camera_override) for path in videos]
     manifest = {"schema_version": SCHEMA_VERSION,
                 "toolchain": {"ffmpeg": tools.ffmpeg, "ffprobe": tools.ffprobe, "version": tools.version},
                 "source_root": str(source), "parameters": dict(PARAMETERS, review_artifacts=review_artifacts), "videos": entries,

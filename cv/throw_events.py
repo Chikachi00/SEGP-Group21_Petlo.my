@@ -33,15 +33,45 @@ class EventSettings:
             raise ValueError('Inconsistent temporal/geometry gates')
 
 
-def observed_points(frames,detections):
+def _person_x_bin(box, width):
+    cx = 0.5 * (box[0] + box[2])
+    return min(9, max(0, int((cx / width) * 10)))
+
+
+def _filter_edge_bystanders(people, width, dominant_bins=None):
+    """When multiple people appear, drop transient edge bystanders while preserving edge handlers."""
+    if not width or len(people) <= 1:
+        return people
+    kept = []
+    for b in people:
+        cx_frac = 0.5 * (b[0] + b[2]) / width
+        is_edge = cx_frac < 0.08 or cx_frac > 0.92
+        if not is_edge:
+            kept.append(b)
+        elif dominant_bins is not None and _person_x_bin(b, width) in dominant_bins:
+            kept.append(b)
+    return kept if kept else people
+
+
+def observed_points(frames,detections,width=None):
     if not frames or len(frames)!=len(detections):raise ValueError('Exact nonempty joint/detector coverage required')
+    dominant_bins=None
+    if width:
+        bin_counts=Counter()
+        for det in detections:
+            for d in det.get('detections',[]):
+                if d.get('label')=='person' and d.get('confidence',0)>=.25:
+                    bin_counts[_person_x_bin(d['bbox'],width)]+=1
+        if bin_counts:
+            peak=max(bin_counts.values())
+            dominant_bins={b for b,c in bin_counts.items() if c>=0.30*peak}
     points=defaultdict(list)
     previous=None
     for row,det in zip(frames,detections):
         if any(row.get(k)!=det.get(k) for k in ('frame_id','t_sec','pts_sec')):raise ValueError('Joint/detector source-time mismatch')
         if previous is not None and (row['frame_id']!=previous['frame_id']+1 or row['t_sec']<=previous['t_sec']):raise ValueError('Invalid frame/time order')
         previous=row
-        people=[d['bbox'] for d in det['detections'] if d['label']=='person' and d['confidence']>=.25]
+        people=_filter_edge_bystanders([d['bbox'] for d in det['detections'] if d['label']=='person' and d['confidence']>=.25],width,dominant_bins)
         dog=row['dog']
         if (dog['state']=='detected')!=(dog['bbox'] is not None):raise ValueError('Dog observation/state mismatch')
         seen=set()
@@ -143,6 +173,8 @@ def release_evidence(sequence,seed,cfg,camera):
         for g in groups(away,lambda p:person_gap(p) is not None and person_gap(p)>=.2,cfg.observation_gap_sec):
             if len(g)<3 or g[-1]['t_sec']-g[0]['t_sec']<cfg.departure_sec-1e-9:continue
             if math.dist(center(anchor['bbox']),center(g[-1]['bbox']))<2*diagonal(anchor['bbox']):continue
+            dog_joint=[p for p in g if p['dog_gap'] is not None]
+            if dog_joint and sum(p['dog_gap']<=cfg.near_dog_diagonals for p in dog_joint)/len(dog_joint)>=.5:continue
             return {'person_near_frame':anchor['frame_id'],'person_near_sec':anchor['t_sec'],
                     'departure_frame':g[0]['frame_id'],'departure_sec':g[0]['t_sec'],
                     'departure_observed_samples':len(g),'person_is_box_reference_not_hand_localization':True}
@@ -199,7 +231,7 @@ def ground_evidence(sequence,labels,cfg):
 
 def analyze_events(frames,detections,width,height,camera='tripod',settings=None,appearances=None,ground_contacts=None):
     cfg=settings or EventSettings()
-    points=observed_points(frames,detections)
+    points=observed_points(frames,detections,width=width)
     proposals=link_proposals(points,width,height,camera,cfg)
     links=resolve_links(proposals,appearances or {},cfg)
     parents={p['to_disc_id']:p['from_disc_id'] for p in links if p['accepted']}
@@ -235,10 +267,17 @@ def analyze_events(frames,detections,width,height,camera='tripod',settings=None,
             initial_joint=[p for p in seed_joint if p['t_sec']<=start+.25]
             carrying_at_start=len(initial_joint)>=3 and all(near(p) for p in initial_joint) and carry_evidence(sequence,initial_joint,cfg) is not None
             still_blocked=blocked_until is not None and start-blocked_until<=2 and seed_near
-            held_near_person=all(person_gap(p) is not None and person_gap(p)<=.08 for p in seed)
-            if release is None and (prior_near and seed_near or carrying_at_start or still_blocked or held_near_person):
+            held_near_person=all(person_gap(p) is not None and person_gap(p)<=.15 for p in seed)
+            seed_centers=[center(p['bbox']) for p in seed]
+            seed_span=max((math.dist(seed_centers[0],c) for c in seed_centers),default=0.)
+            mean_diag=sum(diagonal(p['bbox']) for p in seed)/len(seed)
+            stationary_background=(seed[-1]['t_sec']-seed[0]['t_sec']>=1.0 and seed_span<2.0*mean_diag)
+            if still_blocked or carrying_at_start or (release is None and (prior_near and seed_near or held_near_person or stationary_background)):
+                reason=('stationary_background_disc' if stationary_background and not held_near_person and not (still_blocked or carrying_at_start)
+                        else 'motion_stays_near_person' if held_near_person and not (still_blocked or carrying_at_start)
+                        else 'near_dog_motion_without_new_release')
                 excluded.append({'disc_ids':sorted({p['disc_id'] for p in seed}),'start_sec':start,'end_sec':seed[-1]['t_sec'],
-                                 'reason':'near_dog_motion_without_new_release' if not held_near_person else 'motion_stays_near_person'})
+                                 'reason':reason})
                 continue
             first=release['person_near_sec'] if release else start
             next_releases=[r['person_near_sec'] for r in releases[seed_index+1:] if r and r['person_near_sec']>seed[-1]['t_sec']]
@@ -259,7 +298,8 @@ def analyze_events(frames,detections,width,height,camera='tripod',settings=None,
             contacts=[]
             for g in groups(episode,near,cfg.observation_gap_sec,True):
                 if len(g)<3 or g[-1]['t_sec']-g[0]['t_sec']<cfg.min_contact_sec-1e-9:continue
-                prior=[p for p in episode if p['t_sec']<g[0]['t_sec'] and p['dog_id']==g[0]['dog_id'] and p['dog_gap'] is not None]
+                # Single-dog tracker may increment dog_id after a brief dark-shade gap during pursuit.
+                prior=[p for p in episode if p['t_sec']<g[0]['t_sec'] and p['dog_id'] is not None and p['dog_gap'] is not None]
                 if any(p['dog_gap']>=cfg.far_dog_diagonals for p in prior):contacts.append(g)
             contact=contacts[0] if contacts else None
             carry=carry_evidence(episode,contact,cfg) if contact else None

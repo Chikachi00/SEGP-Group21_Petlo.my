@@ -52,6 +52,9 @@ class _Track:
     samples: int = 1
     track_id: str | None = None
     missing: bool = False
+    anchor_center: list | None = None
+    anchor_since: float | None = None
+    stationary_background: bool = False
 
 
 class DiscTracker:
@@ -82,7 +85,9 @@ class DiscTracker:
                 raise ValueError('Disc box outside the oriented frame')
             if not finite(conf) or not 0 <= conf <= 1:
                 raise ValueError('Invalid disc confidence')
-            if conf >= self.settings.confidence:
+            origin = detection.get('origin') or ''
+            min_conf = min(self.settings.confidence, .10) if origin.endswith('_motion') else self.settings.confidence
+            if conf >= min_conf:
                 discs.append({'bbox': list(box), 'confidence': conf})
         # Contained crop duplicates can survive the detector's IoU suppression.
         # A spatially distinct second disc must remain available for its own ID.
@@ -145,14 +150,18 @@ class DiscTracker:
                     candidate_costs[j].append(cost)
         ambiguous_tracks, ambiguous_candidates = set(), set()
         # Refuse both row and column near-ties; never send one detection to two IDs.
-        # Build each row/column once rather than rescan every gated pair for it.
+        # Do not let a long-stationary background disc block a moving track's match.
         for i, values in enumerate(track_costs):
             ranked = sorted(values)
             if len(ranked) > 1 and ranked[1] - ranked[0] < self.settings.ambiguity_margin:
                 ambiguous_tracks.add(i)
-        for j, values in enumerate(candidate_costs):
-            ranked = sorted(values)
-            if len(ranked) > 1 and ranked[1] - ranked[0] < self.settings.ambiguity_margin:
+        for j in range(len(candidates)):
+            active_costs = sorted(
+                costs[i, j] for i in range(len(self.tracks))
+                if (i, j) in costs and not getattr(self.tracks[i], 'stationary_background', False)
+            )
+            values = active_costs if len(active_costs) >= 1 else sorted(candidate_costs[j])
+            if len(values) > 1 and values[1] - values[0] < self.settings.ambiguity_margin:
                 ambiguous_candidates.add(j)
         matches, used = {}, set()
         for (i, j), cost in sorted(costs.items(), key=lambda item: (item[1], item[0])):
@@ -169,7 +178,8 @@ class DiscTracker:
         return {'track_id': track.track_id, 'candidate_id': track.serial, 'state': state,
                 'bbox': bbox, 'confidence': confidence, 'prediction_bbox': prediction,
                 'tentative_bbox': list(track.box) if state == 'acquiring' else None,
-                'reason': reason, 'reacquired': reacquired}
+                'reason': reason, 'reacquired': reacquired,
+                'stationary_background': bool(track.stationary_background)}
 
     def update(self, now, detections):
         if not finite(now) or now < 0 or self.previous_time is not None and now <= self.previous_time:
@@ -197,6 +207,18 @@ class DiscTracker:
                 track.box, track.last_time = list(d['bbox']), now
                 track.samples += 1
                 track.missing = False
+                cur_center = center(track.box)
+                disc_diag = math.hypot(track.box[2] - track.box[0], track.box[3] - track.box[1])
+                if track.anchor_center is None or track.anchor_since is None:
+                    track.anchor_center, track.anchor_since = cur_center, now
+                    track.stationary_background = False
+                else:
+                    drift = math.dist(cur_center, track.anchor_center)
+                    if drift > 1.5 * disc_diag:
+                        track.anchor_center, track.anchor_since = cur_center, now
+                        track.stationary_background = False
+                    elif now - track.anchor_since >= 1.5 and drift <= disc_diag:
+                        track.stationary_background = True
                 if track.track_id is None and track.samples >= self.settings.confirm_samples:
                     self.track_count += 1
                     track.track_id = f'disc-{self.track_count:03d}'

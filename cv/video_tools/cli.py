@@ -20,6 +20,8 @@ def main(argv=None):
     prepare_parser.add_argument("--source", required=True, type=Path)
     prepare_parser.add_argument("--output", required=True, type=Path)
     prepare_parser.add_argument("--force", action="store_true")
+    prepare_parser.add_argument("--camera", choices=("auto", "tripod", "handheld"), default="auto",
+                                help="显式指定机位类型（如无 tripod 命名的固定机位视频传 tripod）")
     prepare_parser.add_argument("--no-review-artifacts", action="store_true",
                                 help="Validate all source frames and save indexes without review JPEGs, sheets or HTML")
     inspect_parser = commands.add_parser("inspect-window", help="提取真实源帧和按需局部图")
@@ -53,8 +55,10 @@ def main(argv=None):
             raise ValueError("资料包输出不能位于只读同步 sources/ 目录中。")
         if args.command == "prepare":
             from .prepare import prepare
+            camera_override = None if args.camera == "auto" else args.camera
             report = prepare(args.source, args.output, tools, force=args.force,
-                             review_artifacts=not args.no_review_artifacts)
+                             review_artifacts=not args.no_review_artifacts,
+                             camera_override=camera_override)
             if not args.no_review_artifacts:
                 from .guide import write_guides
                 write_guides(args.output, report)

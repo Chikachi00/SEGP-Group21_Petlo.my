@@ -142,7 +142,7 @@ class RecoveryTracker:
         for track in self.base.tracks:
             if not track.track_id or now-track.last_time > self.base.settings.identity_gap_sec:
                 continue
-            raw_discs = [d for d in detections if d.get('label')=='disc' and d['confidence']>=self.base.settings.confidence]
+            raw_discs = [d for d in detections if d.get('label')=='disc' and d['confidence']>=(min(self.base.settings.confidence,.10) if (d.get('origin') or '').endswith('_motion') else self.base.settings.confidence)]
             if any(self.base._cost(track,d,now) is not None for d in raw_discs) or not self._moving(track):
                 continue
             anchor = self.anchors.get(track.track_id)

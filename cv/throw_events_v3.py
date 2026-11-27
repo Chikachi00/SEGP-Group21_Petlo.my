@@ -63,7 +63,7 @@ def _interception_loss(sequence, frames, cfg):
         if len(group)<2 or group[-1]['t_sec']-group[0]['t_sec']<.08-1e-9:continue
         anchors=[p for p in group if p['measurement_source'] in ('saved_detector','local_yolo')]
         if len(anchors)<2 or not any(p['dog_gap']<=1e-9 for p in group):continue
-        before=[p for p in sequence if p['t_sec']<group[0]['t_sec'] and p['dog_id']==group[0]['dog_id'] and p['dog_gap'] is not None]
+        before=[p for p in sequence if p['t_sec']<group[0]['t_sec'] and p['dog_id'] is not None and p['dog_gap'] is not None]
         if not any(p['dog_gap']>=cfg.far_dog_diagonals for p in before):continue
         if not any(p.get('moving') or p.get('approaching') for p in sequence if p['t_sec']<=group[-1]['t_sec']):continue
         last_anchor=anchors[-1]
@@ -108,10 +108,128 @@ def _ground_pickup_candidate(sequence, frames, width, height):
             'evidence_type':'descending_low_disc_then_dog_reaches_last_observed_location'}
 
 
+def _near_frame_edge(box, width, height, margin=0.08):
+    """Return the frame edge(s) a box touches within ``margin`` of frame size."""
+    edges = set()
+    if box[0] <= margin * width:
+        edges.add("left")
+    if box[2] >= (1.0 - margin) * width:
+        edges.add("right")
+    if box[3] >= (1.0 - margin) * height:
+        edges.add("bottom")
+    return edges
+
+
+def _edge_exit_reentry(sequence, frames, width, height, cfg):
+    """Detect near-edge dog/disc interception followed by brief exit and carrying re-entry."""
+    near_points = [p for p in sequence if p['dog_bbox'] is not None and p['dog_gap'] is not None
+                   and p['dog_gap'] <= cfg.near_dog_diagonals
+                   and p['measurement_source'] in ('saved_detector', 'local_yolo')]
+    if not near_points:
+        return None
+    exit_point = None
+    exit_edges = set()
+    for p in reversed(near_points):
+        edges = _near_frame_edge(p['dog_bbox'], width, height) | _near_frame_edge(p['bbox'], width, height)
+        if edges:
+            prior = [q for q in sequence if q['t_sec'] < p['t_sec'] and q['dog_id'] == p['dog_id']
+                     and q['dog_gap'] is not None and q['dog_gap'] >= cfg.far_dog_diagonals]
+            if prior:
+                exit_point, exit_edges = p, edges
+                break
+    if exit_point is None:
+        return None
+    t_exit = exit_point['t_sec']
+    # Confirm dog briefly leaves or loses measurement near that edge, then returns with a disc near it.
+    after_frames = [r for r in frames if t_exit < r['t_sec'] <= t_exit + 3.5]
+    missing_after = [r for r in after_frames if r['t_sec'] <= t_exit + 0.8 and r['dog']['bbox'] is None]
+    if not missing_after:
+        return None
+    reentry_hits = []
+    for r in after_frames:
+        if r['t_sec'] < t_exit + 0.4:
+            continue
+        dog_box = r['dog']['bbox'] if r['dog']['state'] == 'detected' else None
+        if dog_box is None:
+            continue
+        if not reentry_hits and not (_near_frame_edge(dog_box, width, height, margin=0.18) & exit_edges):
+            continue
+        for d in r['discs']:
+            if d['bbox'] is None or d.get('measurement_source') not in ('saved_detector', 'local_yolo'):
+                continue
+            gap = d.get('gap_to_dog_diagonals')
+            if gap is not None and gap <= cfg.near_dog_diagonals:
+                reentry_hits.append((r['frame_id'], r['t_sec'], d['disc_id']))
+                break
+        if len(reentry_hits) >= 2 and reentry_hits[-1][1] - reentry_hits[0][1] >= 0.1:
+            return {
+                'exit_frame': exit_point['frame_id'], 'exit_sec': t_exit,
+                'exit_edges': sorted(exit_edges),
+                'reentry_start_frame': reentry_hits[0][0], 'reentry_start_sec': reentry_hits[0][1],
+                'reentry_end_frame': reentry_hits[-1][0], 'reentry_end_sec': reentry_hits[-1][1],
+                'reentry_disc_ids': sorted({h[2] for h in reentry_hits}),
+                'mouth_localized': False,
+                'evidence_type': 'near_edge_contact_then_dog_reenters_with_disc',
+            }
+    return None
+
+
+def _offscreen_retrieval_evidence(sequence, frames, width, height, cfg):
+    """Record honest offscreen-chase retrieval evidence without claiming in-air catch."""
+    model_pts = [p for p in sequence if p['measurement_source'] in ('saved_detector', 'local_yolo')]
+    if len(model_pts) < 2 or not any(p.get('moving') for p in sequence):
+        return None
+    last_disc = model_pts[-1]
+    exit_edges = _near_frame_edge(last_disc['bbox'], width, height, margin=0.15)
+    if not exit_edges:
+        return None
+    t_disc_exit = last_disc['t_sec']
+    # Confirm dog chases to the same edge and leaves frame briefly, then returns carrying a disc.
+    dog_near_exit = [
+        r for r in frames
+        if t_disc_exit - 0.3 <= r['t_sec'] <= t_disc_exit + 1.0
+        and r['dog']['state'] == 'detected' and r['dog']['bbox'] is not None
+        and (_near_frame_edge(r['dog']['bbox'], width, height, margin=0.18) & exit_edges)
+    ]
+    if not dog_near_exit:
+        return None
+    t_dog_exit = dog_near_exit[-1]['t_sec']
+    after_frames = [r for r in frames if t_dog_exit < r['t_sec'] <= t_dog_exit + 4.0]
+    if not any(r['t_sec'] <= t_dog_exit + 0.8 and r['dog']['bbox'] is None for r in after_frames):
+        return None
+    reentry_hits = []
+    for r in after_frames:
+        if r['t_sec'] < t_dog_exit + 0.4:
+            continue
+        dog_box = r['dog']['bbox'] if r['dog']['state'] == 'detected' else None
+        if dog_box is None:
+            continue
+        if not reentry_hits and not (_near_frame_edge(dog_box, width, height, margin=0.22) & exit_edges):
+            continue
+        for d in r['discs']:
+            if d['bbox'] is None or d.get('measurement_source') not in ('saved_detector', 'local_yolo'):
+                continue
+            gap = d.get('gap_to_dog_diagonals')
+            if gap is not None and gap <= cfg.near_dog_diagonals:
+                reentry_hits.append((r['frame_id'], r['t_sec'], d['disc_id']))
+                break
+        if len(reentry_hits) >= 2 and reentry_hits[-1][1] - reentry_hits[0][1] >= 0.1:
+            return {
+                'disc_exit_frame': last_disc['frame_id'], 'disc_exit_sec': t_disc_exit,
+                'dog_exit_sec': t_dog_exit, 'exit_edges': sorted(exit_edges),
+                'reentry_start_frame': reentry_hits[0][0], 'reentry_start_sec': reentry_hits[0][1],
+                'reentry_end_frame': reentry_hits[-1][0], 'reentry_end_sec': reentry_hits[-1][1],
+                'reentry_disc_ids': sorted({h[2] for h in reentry_hits}),
+                'in_air_vs_ground_verified': False,
+                'evidence_type': 'dog_and_disc_exit_same_edge_then_dog_reenters_carrying',
+            }
+    return None
+
+
 def analyze_events(frames,detections,width,height,camera='tripod',settings=None,appearances=None,ground_contacts=None):
     cfg=settings or EventSettings()
     events,ledger,diagnostics=_analyze_events_v2(frames,detections,width,height,camera,cfg,appearances,ground_contacts)
-    points_by_id=observed_points(frames,detections)
+    points_by_id=observed_points(frames,detections,width=width)
     for event in events:
         sequence=sorted((p for disc_id in event['disc_ids'] for p in points_by_id.get(disc_id,[])
                          if event['start_sec']-.25<=p['t_sec']<=event['end_sec']+.8),key=lambda p:p['t_sec'])
@@ -135,6 +253,19 @@ def analyze_events(frames,detections,width,height,camera='tripod',settings=None,
             if arrival['t_sec']>event['end_sec']:
                 event['end_frame'],event['end_sec']=arrival['frame_id'],arrival['t_sec']
                 event['review_end_sec']=min(frames[-1]['t_sec'],arrival['t_sec']+1)
+        reentry=_edge_exit_reentry(sequence,frames,width,height,cfg) if camera=='tripod' and event['carry_evidence'] is None and not intercept and not pickup else None
+        if reentry:
+            event['edge_reentry_evidence']=reentry
+            event['predicted_outcome']='catch_candidate'
+            event['termination']='edge_exit_reentry_carry_candidate'
+            if 'edge_exit_reentry_requires_review' not in event['uncertainty_reasons']:
+                event['uncertainty_reasons'].append('edge_exit_reentry_requires_review')
+        elif camera=='tripod' and event['predicted_outcome']=='uncertain' and event['carry_evidence'] is None and not intercept and not pickup:
+            offscreen=_offscreen_retrieval_evidence(sequence,frames,width,height,cfg)
+            if offscreen:
+                event['offscreen_retrieval_evidence']=offscreen
+                if 'offscreen_interception_unobserved_air_vs_ground' not in event['uncertainty_reasons']:
+                    event['uncertainty_reasons'].append('offscreen_interception_unobserved_air_vs_ground')
         if event['carry_evidence']:
             event['predicted_outcome']='catch_candidate'
             event['termination']='sustained_dog_relative_disc_candidate'

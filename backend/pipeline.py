@@ -99,7 +99,10 @@ class PipelineRunner:
             'storage': str(self.settings.storage), 'model': str(self.settings.model),
             'ffmpeg_dir': str(Path(self.tools().ffmpeg).parent), 'stage_timeout': self.settings.stage_timeout,
             'device': self.settings.device, 'cpu_threads': self.settings.cpu_threads,
-            'tile_batch_size': self.settings.tile_batch_size}), encoding='utf-8')
+            'tile_batch_size': self.settings.tile_batch_size,
+            'disc_band': list(self.settings.disc_band) if self.settings.disc_band is not None else None,
+            'band_cols': self.settings.band_cols,
+            'motion_disc_confidence': self.settings.motion_disc_confidence}), encoding='utf-8')
         position = 0
 
         def progress():
@@ -217,7 +220,9 @@ class PipelineRunner:
                 model=str(self.settings.model), mode='enhanced', confidence=.25, disc_confidence=.25,
                 imgsz=None, disc_grid=None, tile_imgsz=960, overlap=.2, start=0., end=None,
                 cpu_threads=self.settings.cpu_threads, device='cpu', ffmpeg_dir=ffmpeg_dir,
-                tile_batch_size=self.settings.tile_batch_size))
+                tile_batch_size=self.settings.tile_batch_size,
+                disc_band=self.settings.disc_band, band_cols=self.settings.band_cols,
+                motion_disc_confidence=self.settings.motion_disc_confidence))
             dog, disc, joint = folder / 'dog', folder / 'disc', folder / 'joint'
             stage(f'{view}:dog_tracks', track_dog, detection_rows, pack, dog, ffmpeg_dir=ffmpeg_dir, render=False)
             stage(f'{view}:disc_tracks', track_disc, detection_rows, pack, disc, ffmpeg_dir=ffmpeg_dir,
@@ -241,7 +246,13 @@ class PipelineRunner:
                 stage('fusion', fuse_events, event_root)
                 fused = json.loads((event_root / 'fused-results.json').read_text(encoding='utf-8'))
             else:
-                fused = stage('fusion', fuse_two_views, event_root / 'front-v1', event_root / 'side-v1', root / 'two-view')
+                view_paths = {v['camera_perspective']: paths[v['video_id']] for v in videos}
+                view_durs = {v['camera_perspective']: metadata[v['video_id']]['duration'] for v in videos}
+                fused = stage('fusion', fuse_two_views, event_root / 'front-v1', event_root / 'side-v1', root / 'two-view',
+                              front_video=view_paths.get('front'), side_video=view_paths.get('side'),
+                              front_joint_dir=root / 'front' / 'joint', side_joint_dir=root / 'side' / 'joint',
+                              ffmpeg_dir=Path(tools.ffmpeg).parent,
+                              front_duration=view_durs.get('front'), side_duration=view_durs.get('side'))
             ids = {v['camera_perspective']: v['video_id'] for v in videos}
             for row in fused['results']:
                 intervals = [{'video_id': ids[view], 'start_sec': row[f'{view}_source_time_sec'][0],
@@ -261,10 +272,15 @@ class PipelineRunner:
             for interval in event['source_intervals']:
                 if not 0 <= interval['start_sec'] <= interval['end_sec'] <= metadata[interval['video_id']]['duration'] + .05:
                     raise ValueError('Algorithm interval outside source duration')
+        sync_note = (
+            'Paired sample views use event order, not a shared source clock.'
+            if mode == 'sample_pair'
+            else 'Paired views use constant-offset audio or event-time alignment; drift or spliced clips remain unreliable.'
+        )
         return {'statistics': {k: v for k, v in stats.items() if k not in ('events', 'source_sha256', 'algorithm', 'schema_version', 'limitations')},
                 'events': api_events, 'previews': previews, 'metadata': metadata,
                 'algorithm_version': f'throw-events-v3/api-adapter-v1:{code_hash}',
                 'limitations': ['Unverified algorithm candidates, not independent accuracy measurements.',
                                 'Fixed front/side cameras only; single-view results may remain uncertain.',
                                 'No calibrated physical distance, height or speed.',
-                                'Paired sample views use event order, not a shared source clock.']}
+                                sync_note]}

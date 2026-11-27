@@ -105,6 +105,7 @@ def analyze(dogs, discs, records, width, height, camera='tripod', settings=None)
             b=t['bbox'] if t['state']=='detected' else None
             p={'disc_id':identity,'state':t['state'],'bbox':b,'prediction_bbox':t.get('prediction_bbox'),
                'measurement_source':t.get('measurement_source'),'confidence':t.get('confidence'),
+               'stationary_background':bool(t.get('stationary_background',False)),
                'phase':'unobserved','moving':False,'gap_to_dog_px':None,'gap_to_dog_diagonals':None,
                'dog_id':dog['track_id'] if dog_box else None,'approaching':False,
                'observed_speed_px_sec':None,'motion_span_sec':None,'stationary_before':False}
@@ -168,7 +169,7 @@ def analyze(dogs, discs, records, width, height, camera='tripod', settings=None)
         motions=[g for g in groups(sequence,lambda p:p['moving']) if len(g)>=3 and g[-1]['t_sec']-g[0]['t_sec']>=cfg.min_episode_sec-1e-9]
         for g in motions:
             events.append(_event(identity,'throw_candidate' if camera=='tripod' and any(p['stationary_before'] for p in g) else 'disc_motion_candidate',g,records,camera))
-        for g in groups(sequence,lambda p:p['phase']=='near_dog_candidate',True):
+        for g in groups(sequence,lambda p:p['phase']=='near_dog_candidate' and not p.get('stationary_background'),True):
             if len(g)<3 or g[-1]['t_sec']-g[0]['t_sec']<cfg.min_contact_sec-1e-9: continue
             # A held/ground plate next to the dog alone does not create contact event.
             associated=[m for m in motions if m[0]['t_sec']<=g[-1]['t_sec'] and m[-1]['t_sec']>=g[0]['t_sec']-.5]
