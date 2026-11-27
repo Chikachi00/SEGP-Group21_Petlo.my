@@ -122,6 +122,26 @@ V3 code provenance now includes the shared v2 rule and analysis files, so change
 
 Validation: all 113 CV tests (including five new v3 evidence cases) and all 16 backend tests passed. The existing real-media event integration test now exercises both versions, including native crops, versioned output files, shared-code fingerprints, cache reuse, modified-cache rejection and input protection. Both direct-script and module CLI entry points passed argument checks. Compared 34 complete output/review-page snapshots against a pre-refactor baseline, including v2/v3 event results on the existing front (2,200 frames) and side (2,163 frames) observations; every snapshot matched. This reused saved detections/tracks and did not rerun full-video YOLO inference or establish recognition accuracy. No Git commit, push or deployment was performed.
 
+## 2026-10-27 — Runtime and GPU performance optimisation (`ab21799`, Ali al komey)
+
+Accelerated end-to-end video analysis while preserving frame coverage and detection thresholds: added automatic CUDA device selection (`PETLO_DEVICE=auto`), batched inference for equal-sized disc tiles (`PETLO_TILE_BATCH_SIZE`), per-job shared YOLO model reuse in one isolated worker process, data-only CV stage execution for API jobs (skipping offline review MP4s/sheets/HTML), and targeted query/search optimisations. Documented 2-second clip analysis dropped from ~109.38 s to ~38.97 s on the benchmarked environment; see [performance.md](performance.md) and [runtime-performance.md](runtime-performance.md).
+
+## 2026-11-07 — Local setup and dependency documentation (`02c4ce7`, `14479f9`, Aerodonn)
+
+Updated project setup documentation in `README.md` to clarify required Python/Node dependencies, portable FFmpeg/ffprobe placement, local YOLO weights preparation, and local startup steps.
+
+## 2026-11-11 — Frontend dashboard redesign and theme toggle (`f6dd569` / PR #3, Wang-sch)
+
+Integrated the redesigned frontend dashboard UI (`1b77268`, `56ca6d7`, `536c7d1`), updated demo upload, result, and history pages, and added a light/dark theme switcher while keeping API-mode live pages (`VITE_USE_API=true`) intact.
+
+## 2026-11-14 — Generalised two-view fusion and detector training/evaluation workflow (`e15d5b5` / PR #4, hazray)
+
+Added time-offset two-view fusion (`cv/fuse_two_views.py`, `paired_views` mode; `3d650d3`) to align arbitrary fixed front/side recordings by event timing with conflict preservation and single-view fallback when alignment is unreliable. Also added the session-split detector fine-tuning and evaluation toolchain (`cv/build_training_frames.py`, `cv/prelabel.py`, `cv/make_dataset.py`, `cv/train_detector.py`, `cv/evaluate_detections.py`; `d399133`, `29bc611`) with accompanying unit tests. Default inference weights remained `yolo11n.pt`.
+
+## 2026-11-25 — Backend core unit test suite and loopback guard (`69877c7` / PR #5, Aerodonn)
+
+Added 21 focused unit tests in `backend/tests/test_backend_core.py` (`adca17c`) covering settings validation, Pydantic request/response schemas, pipeline file/selection helpers, and `ProcessControl` state transitions, and added a loopback TCP socket probe in `backend/tests/test_api.py` so restricted sandbox environments skip socket-bound integration tests cleanly instead of hanging.
+
 ## 2026-11-27 — Audio-based two-view sync and multi-sample robustness (`96596e3`)
 
 Reviewed seven newly recorded fixed-tripod sample pairs covering multiple fields, larger camera clock offsets, opposite camera orientations, ground-disc clutter, off-screen interceptions, and one spliced/frozen recording, then implemented targeted pipeline improvements without changing default model weights (`yolo11n.pt`) or legacy database schemas:
